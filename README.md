@@ -54,3 +54,7 @@ Book Advertisement:
 
 Post Add Page: 
 ![add](https://github.com/viradhanus/Sale-Library/blob/master/site_images/post_add.png "add")
+
+
+### Technical Overview 
+The website is build mainly using Drupal 7. It is powered with ‘PHP’.  Apache 2.4.18  is used as the web server. MySQL 5.5.48 is used as the database server. As a tool to manage MySQL database in a browser, phpMyAdmin 4.4.14 is used.
