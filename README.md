@@ -64,5 +64,5 @@ We used pantheon as the web hosting service which is free at the develpment stag
 Pantheon dashboard: 
 ![pd](https://github.com/viradhanus/Sale-Library/blob/master/site_images/pantheon_dashboard.png "pd")
 
-Pantheon Git Mode: 
+Pantheon Dev Modes: 
 ![pdg](https://github.com/viradhanus/Sale-Library/blob/master/site_images/commits.png "pdg")
