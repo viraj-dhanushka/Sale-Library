@@ -57,4 +57,9 @@ Post Add Page:
 
 
 ### Technical Overview 
-The website is build mainly using Drupal 7. It is powered with ‘PHP’.  Apache 2.4.18  is used as the web server. MySQL 5.5.48 is used as the database server. As a tool to manage MySQL database in a browser, phpMyAdmin 4.4.14 is used.
+The website is build mainly using Drupal 7, which is powered with ‘PHP’.  Apache is used as the web server. MySQL is used as the database server. 
+</br>
+We used pantheon as the web hosting service which is free at the develpment stage and allows to develop the site as a team.
+
+Pantheon dashboard: 
+![pd](https://github.com/viradhanus/Sale-Library/blob/master/site_images/pantheon_dashboard.png "pd")
