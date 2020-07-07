@@ -1,0 +1,13 @@
+name = Ads (old)
+description = Ad unit generator module using the old format code in which the colours are specified in the ad's JavaScript.
+dependencies[] = adsense:adsense
+package = AdSense
+core = 7.x
+
+configure = admin/config/services/adsense/oldcode
+
+; Information added by Drupal.org packaging script on 2019-04-30
+version = "7.x-1.13"
+core = "7.x"
+project = "adsense"
+datestamp = "1556634017"

@@ -1,0 +1,20 @@
+name = Commerce Wish list
+description = Allows users to create public product wish lists.
+package = Commerce (contrib)
+dependencies[] = commerce
+dependencies[] = commerce_product
+dependencies[] = views
+core = 7.x
+configure = admin/commerce/config/wishlist
+
+; Views handlers files
+files[] = includes/views/handlers/commerce_wishlist_handler_field_add_to_cart_form.inc
+files[] = includes/views/handlers/commerce_wishlist_handler_field_remove.inc
+files[] = commerce_wishlist.test
+
+; Information added by Drupal.org packaging script on 2016-03-09
+version = "7.x-3.0-beta1"
+core = "7.x"
+project = "commerce_wishlist"
+datestamp = "1457559845"
+

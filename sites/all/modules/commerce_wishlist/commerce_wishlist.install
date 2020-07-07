@@ -1,0 +1,308 @@
+<?php
+
+/**
+ * @file
+ * Installation hooks.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function commerce_wishlist_install() {
+  // Grant users the ability to manage their own wishlist by default.
+  user_role_grant_permissions(DRUPAL_AUTHENTICATED_RID, array('manage own wish list'));
+
+  // Create our field.
+  commerce_wishlist_create_visibility_field();
+}
+
+/**
+ * Convert wish lists to use orders.
+ */
+function commerce_wishlist_update_7300(&$sandbox) {
+  commerce_wishlist_create_visibility_field();
+
+  if (db_table_exists('commerce_wishlist')) {
+    if (db_table_exists('commerce_wishlist_item')) {
+      commerce_wishlist_upgrade_from_2x_to_3x($sandbox);
+    }
+    else {
+      commerce_wishlist_upgrade_from_1x_to_3x($sandbox);
+    }
+  }
+}
+
+/**
+ * Delete the old wish list tables from the database.
+ */
+function commerce_wishlist_update_7301() {
+  // Present on both 1.x and 2.x.
+  db_drop_table('commerce_wishlist');
+
+  // 1.x will not have this table.
+  if (db_table_exists('commerce_wishlist_item')) {
+    db_drop_table('commerce_wishlist_item');
+  }}
+
+/**
+ * Create visibility field.
+ */
+function commerce_wishlist_update_7302() {
+  // Create visibility field.
+  commerce_wishlist_create_visibility_field();
+}
+
+/**
+ * Create a visibility field.
+ */
+function commerce_wishlist_create_visibility_field() {
+  // Create our visibility field.
+  if (!field_info_field('commerce_wishlist_visibility')) {
+    field_create_field(array(
+      'translatable' => '0',
+      'entity_types' => array(),
+      'settings' => array(
+        'allowed_values' => array(
+          0 => 'Private',
+          1 => 'Protected',
+          2 => 'Public',
+        ),
+        'allowed_values_function' => '',
+      ),
+      'foreign keys' => array(),
+      'indexes' => array(
+        'value' => array(
+          0 => 'value',
+        ),
+      ),
+      'field_name' => 'commerce_wishlist_visibility',
+      'type' => 'list_integer',
+      'module' => 'list',
+      'active' => '1',
+      'locked' => '0',
+      'cardinality' => '1',
+      'columns' => array(
+        'value' => array(
+          'type' => 'int',
+          'not null' => FALSE,
+        ),
+      ),
+      'bundles' => array(
+        'commerce_order' => array(
+          0 => 'commerce_order',
+        ),
+      ),
+    ));
+  }
+
+  if (!field_info_instance('commerce_order', 'commerce_wishlist_visibility', 'commerce_order')) {
+    field_create_instance(array(
+      'label' => 'Wishlist visibility',
+      'widget' => array(
+        'weight' => '-10',
+        'type' => 'options_select',
+        'module' => 'options',
+        'active' => 1,
+        'settings' => array(),
+      ),
+      'settings' => array(
+        'user_register_form' => FALSE,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'above',
+          'type' => 'hidden',
+          'weight' => '-10',
+          'settings' => array(),
+        ),
+      ),
+      'required' => 1,
+      'description' => 'Public means that anyone can see it. Protected wish lists can be shared, but are only available via a special URL. Private wishlists are only accessible to the owner.',
+      'default_value' => array(
+        0 => array(
+          'value' => '0',
+        ),
+      ),
+      'field_name' => 'commerce_wishlist_visibility',
+      'entity_type' => 'commerce_order',
+      'bundle' => 'commerce_order',
+    ));
+  }
+}
+
+/**
+ * Implements hook_schema().
+ */
+function commerce_wishlist_schema() {
+  $schema['commerce_wishlist_share'] = array(
+    'description' => 'Holds URL hashes for shared, protected wish lists.',
+    'fields' => array(
+      'order_id' => array(
+        'description' => 'Order ID',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'url_hash' => array(
+        'description' => 'Hash used in the URL to identify this wish list.',
+        'type' => 'varchar',
+        'length' => '64',
+        'not null' => TRUE,
+        'default' => '',
+      ),
+    ),
+    'primary key' => array('order_id'),
+    'unique keys' => array(
+      'url_hash' => array(array('url_hash', 8)),
+    ),
+  );
+
+  return $schema;
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function commerce_wishlist_uninstall() {
+  // Remove module variables.
+  variable_del('commerce_wishlist_element');
+  variable_del('commerce_wishlist_product_types');
+  variable_del('commerce_wishlist_weight');
+
+  field_delete_field('commerce_wishlist_visibility');
+}
+
+/**
+ * Upgrade from 1.x to 3.x.
+ */
+function commerce_wishlist_upgrade_from_1x_to_3x(&$sandbox) {
+  if (!isset($sandbox['progress'])) {
+    $sandbox['progress'] = 0;
+    $sandbox['current_uid'] = 0;
+    $sandbox['max'] = db_query('SELECT MAX(DISTINCT uid) FROM {commerce_wishlist}')->fetchField();
+    $sandbox['total'] = db_query('SELECT COUNT(DISTINCT uid) FROM {commerce_wishlist}')->fetchField();
+  }
+
+  // Get the entries we are updating in this iteration.
+  $user_ids = db_select('commerce_wishlist', 'cw')
+    ->distinct()
+    ->fields('cw', array('uid'))
+    ->condition('uid', $sandbox['current_uid'], '>')
+    ->range(0, 50)
+    ->orderBy('uid', 'ASC')
+    ->execute()
+    ->fetchAll();
+
+  // Add or create the items..
+  if ($user_ids) {
+    foreach ($user_ids as $user) {
+      $uid = $user->uid;
+
+      $wishlist_products = db_select('commerce_wishlist', 'cw')
+        ->fields('cw')
+        ->condition('uid', $uid)
+        ->execute();
+
+      $wishlist_order = commerce_wishlist_order_new($uid);
+
+      foreach ($wishlist_products as $wishlist_product) {
+        $product = commerce_product_load($wishlist_product->product_id);
+
+        $line_item = commerce_product_line_item_new($product);
+        $line_item->created = time();
+        $line_item->quantity = !empty($wishlist_product->quantity) ? (int) $wishlist_product->quantity : 1;
+        $line_item->commerce_display_path[LANGUAGE_NONE][0] = array('value' => 'node/' . $wishlist_product->nid);
+
+        // Set the incoming line item's order_id.
+        $line_item->order_id = $wishlist_order->order_id;
+
+        // Save the incoming line item now so we get its ID.
+        commerce_line_item_save($line_item);
+
+        // Add it to the order's line item reference value.
+        $wishlist_order->commerce_line_items[LANGUAGE_NONE][] = array('line_item_id' => $line_item->line_item_id);
+      }
+
+      // Save the updated order.
+      commerce_order_save($wishlist_order);
+
+      $sandbox['progress']++;
+      $sandbox['current_uid'] = $uid;
+    }
+  }
+  else {
+    $sandbox['#finished'] = 1;
+    return;
+  }
+
+  $sandbox['#finished'] = empty($sandbox['total']) ? 1 : ($sandbox['progress'] / $sandbox['total']);
+}
+
+/**
+ * Upgrades from Commerce Wishlist 2.x to 3.x
+ */
+function commerce_wishlist_upgrade_from_2x_to_3x(&$sandbox) {
+  if (!isset($sandbox['progress'])) {
+    $sandbox['progress'] = 0;
+    $sandbox['current_id'] = 0;
+    $sandbox['max'] = db_query('SELECT COUNT(DISTINCT wishlist_id) FROM {commerce_wishlist}')->fetchField();
+  }
+
+  // Get our wish lists.
+  $wishlist_ids = db_select('commerce_wishlist', 'cw')
+    ->fields('cw', array('wishlist_id', 'uid'))
+    ->condition('wishlist_id', $sandbox['current_id'], '>')
+    ->range(0, 50)
+    ->orderBy('wishlist_id', 'ASC')
+    ->execute()
+    ->fetchAll();
+
+  // Update the coupons.
+  if ($wishlist_ids) {
+    foreach ($wishlist_ids as $wishlist) {
+      $product_ids = db_select('commerce_wishlist_item', 'cwi')
+        ->fields('cwi')
+        ->condition('wishlist_id', $wishlist->wishlist_id)
+        ->execute()
+        ->fetchAll();
+
+      if (!$product_ids) {
+        $sandbox['progress']++;
+        $sandbox['current_id'] = $wishlist->wishlist_id;
+        continue;
+      }
+
+      $wishlist_order = commerce_wishlist_order_new($wishlist->uid);
+
+      foreach ($product_ids as $wishlist_product) {
+        $product = commerce_product_load($wishlist_product->product_id);
+
+        $line_item = commerce_product_line_item_new($product, 1);
+        $line_item->created = $wishlist_product->added;
+        $line_item->quantity = $wishlist_product->quantity > 1 ? $wishlist_product->quantity : 1;
+        $line_item->commerce_display_path[LANGUAGE_NONE][0] = array('value' => 'node/' . $wishlist_product->nid);
+
+        // Set the incoming line item's order_id.
+        $line_item->order_id = $wishlist_order->order_id;
+
+        // Save the incoming line item now so we get its ID.
+        commerce_line_item_save($line_item);
+
+        // Add it to the order's line item reference value.
+        $wishlist_order->commerce_line_items[LANGUAGE_NONE][] = array('line_item_id' => $line_item->line_item_id);
+      }
+
+      // Save the updated order.
+      commerce_order_save($wishlist_order);
+
+      $sandbox['progress']++;
+      $sandbox['current_id'] = $wishlist->coupon_id;
+    }
+  }
+  else {
+    $sandbox['#finished'] = 1;
+    return;
+  }
+
+  $sandbox['#finished'] = empty($sandbox['max']) ? 1 : ($sandbox['progress'] / $sandbox['max']);
+}

@@ -1,0 +1,69 @@
+<?php
+/**
+ * @file
+ *
+ * Install / Setup functions for Commerce Checkout by Amazon.
+ */
+
+/**
+* Implements hook_requirements().
+*/
+function commerce_cba_requirements($phase) {
+  $requirements = array();
+
+  if ($phase == 'runtime') {
+    if (!variable_get('cba_merchant_id', '') && variable_get('cba_public_key', '')) {
+      $requirements['commerce_cba'] = array(
+        'value' => t('Not configured'),
+        'severity' => REQUIREMENT_ERROR,
+        'description' => t('Go to !cbasettings to set up "Checkout by Amazon".', array('!cbasettings' => l('Administration > Store > Configuration > Checkout by Amazon', 'admin/commerce/config/cba'))),
+      );
+    }
+    else {
+      $requirements['commerce_cba'] = array(
+        'value' => t('Configured'),
+        'severity' => REQUIREMENT_OK,
+      );
+    }
+    $requirements['commerce_cba']['title'] = t('Commerce Checkout by Amazon');
+  }
+
+  return $requirements;
+}
+
+/**
+ * Implements hook_install().
+ */
+function commerce_cba_install() {
+  // Installation message that points to Checkout by Amazon settings.
+  if (!drupal_installation_attempted()) {
+     $t = get_t();
+     drupal_set_message($t('Commerce checkout by Amazon successfully installed. Go to !cbasettings to set up "Checkout by Amazon".', array('!cbasettings' => l('Administration > Store > Configuration > Checkout by Amazon', 'admin/commerce/config/cba'))));
+  }
+}
+
+
+/**
+ * Implements hook_uninstall().
+ */
+function commerce_cba_uninstall() {
+  variable_del('cba_merchant_id');
+  variable_del('cba_public_key');
+  variable_del('cba_secret_key');
+  variable_del('cba_method');
+  variable_del('cba_country');
+  variable_del('cba_mode');
+  variable_del('cba_widget_settings');
+  variable_del('cba_hide_regular_checkout');
+
+  // Load the dependent commerce_cba module file, because it has already been
+  // disabled.
+  drupal_load('module', 'commerce_cba');
+
+  // Remove fields related with checkout by Amazon.
+  module_load_include('module', 'commerce');
+  commerce_delete_instances('commerce_order', 'commerce_cba_amazon_order_ids');
+  commerce_delete_field('commerce_cba_amazon_order_ids');
+}
+
+

@@ -1,0 +1,25 @@
+<?php
+/**
+ * @file
+ * Install functions for commerce_feeds_example module.
+ */
+
+/*
+ * Implement hook_enable().
+ */
+function commerce_feeds_example_enable() {
+  $disabled = variable_get('default_feeds_importer');
+  $disabled['product_importer'] = FALSE;
+  $disabled['product_reference_importer'] = FALSE;
+  variable_set('default_feeds_importer', $disabled);
+}
+
+/*
+ * Implement hook_disable().
+ */
+function commerce_feeds_example_disable() {
+  $disabled = variable_get('default_feeds_importer');
+  $disabled['product_importer'] = TRUE;
+  $disabled['product_reference_importer'] = TRUE;
+  variable_set('default_feeds_importer', $disabled);
+}

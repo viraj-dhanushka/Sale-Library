@@ -1,0 +1,58 @@
+<?php
+
+/**
+ * @file
+ * Install file of the adsense_oldcode module.
+ */
+
+/**
+ * Implements hook_uninstall().
+ */
+function adsense_oldcode_uninstall() {
+  variable_del('adsense_oldcode_number_blocks');
+
+  $settings = db_query("SELECT name FROM {variable} WHERE name LIKE 'adsense\_oldcode\_ad\_block\_%'");
+  foreach ($settings as $variable) {
+    variable_del($variable->name);
+  }
+  $settings = db_query("SELECT name FROM {variable} WHERE name LIKE 'adsense\_ad\_type\_%'");
+  foreach ($settings as $variable) {
+    variable_del($variable->name);
+  }
+  $settings = db_query("SELECT name FROM {variable} WHERE name LIKE 'adsense\_alt\_%'");
+  foreach ($settings as $variable) {
+    variable_del($variable->name);
+  }
+  $settings = db_query("SELECT name FROM {variable} WHERE name LIKE 'adsense\_alt\_info\_%'");
+  foreach ($settings as $variable) {
+    variable_del($variable->name);
+  }
+  $settings = db_query("SELECT name FROM {variable} WHERE name LIKE 'adsense\_color\_bg\_%'");
+  foreach ($settings as $variable) {
+    variable_del($variable->name);
+  }
+  $settings = db_query("SELECT name FROM {variable} WHERE name LIKE 'adsense\_color\_border\_%'");
+  foreach ($settings as $variable) {
+    variable_del($variable->name);
+  }
+  $settings = db_query("SELECT name FROM {variable} WHERE name LIKE 'adsense\_color\_link\_%'");
+  foreach ($settings as $variable) {
+    variable_del($variable->name);
+  }
+  $settings = db_query("SELECT name FROM {variable} WHERE name LIKE 'adsense\_color\_text\_%'");
+  foreach ($settings as $variable) {
+    variable_del($variable->name);
+  }
+  $settings = db_query("SELECT name FROM {variable} WHERE name LIKE 'adsense\_color\_url\_%'");
+  foreach ($settings as $variable) {
+    variable_del($variable->name);
+  }
+  $settings = db_query("SELECT name FROM {variable} WHERE name LIKE 'adsense\_group\_title\_%'");
+  foreach ($settings as $variable) {
+    variable_del($variable->name);
+  }
+  $settings = db_query("SELECT name FROM {variable} WHERE name LIKE 'adsense\_ui\_features\_%'");
+  foreach ($settings as $variable) {
+    variable_del($variable->name);
+  }
+}

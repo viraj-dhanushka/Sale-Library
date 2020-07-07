@@ -1,0 +1,13 @@
+name = Commerce discount test shipping method
+description = Provides shipping methods for commerce discount tests.
+package = Commerce (shipping)
+dependencies[] = commerce
+dependencies[] = commerce_shipping
+core = 7.x
+
+; Information added by Drupal.org packaging script on 2017-12-19
+version = "7.x-1.0-beta5"
+core = "7.x"
+project = "commerce_discount"
+datestamp = "1513724288"
+

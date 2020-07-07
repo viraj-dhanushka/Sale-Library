@@ -1,0 +1,37 @@
+<?php
+
+/**
+ * @file
+ * Webform Purge installation.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function webform_purge_install() {
+  // Set default variables.
+  variable_set('webform_purge_enabled', 0);
+  variable_set('webform_purge_run_once', 1);
+  variable_set('webform_purge_days_to_retain', 30);
+
+  // Get localization function for installation as t() may be unavailable.
+  $t = get_t();
+
+  // Give user feedback.
+  drupal_set_message($t('Webform Purge variables created.'));
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function webform_purge_uninstall() {
+  // Delete variables.
+  variable_del('webform_purge_enabled');
+  variable_del('webform_purge_run_once');
+  variable_del('webform_purge_days_to_retain');
+
+  // Inform the user of the removal.
+  $t = get_t();
+  drupal_set_message($t('Webform Purge variables removed.'));
+
+}

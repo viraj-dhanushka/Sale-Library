@@ -1,0 +1,15 @@
+name = DrupalChat Nodejs integration
+description = Adds Node.js backend to DrupalChat
+package = DrupalChat
+version = VERSION
+core = 7.x
+files[] = drupalchat_nodejs.module
+dependencies[] = nodejs
+dependencies[] = drupalchat
+
+
+; Information added by Drupal.org packaging script on 2020-06-01
+version = "7.x-2.10"
+core = "7.x"
+project = "drupalchat"
+datestamp = "1591033253"

@@ -1,0 +1,27 @@
+<?php
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+/**
+ * Implements hook_menu().
+ */
+function mailjet_list_menu() {
+  $items = array();
+  $items['admin/config/system/mailjet/mailjet-panel/list'] = array(
+    'title' => 'Contacts',
+    'page callback' => 'mailjet_list_iframe',
+    'access arguments' => array('administer mailjet module'),
+    'description' => t('Click here to access the Mailjet contact lists'),
+    'file path' => drupal_get_path('module', 'mailjet_list'),
+    'file' => 'includes/mailjet_list.iframes.inc',
+    'type' => MENU_LOCAL_ACTION,
+    'weight' => 1,
+  );
+
+  return $items;
+}
+
+/**
+ * Adds permissions for the lists.
+ */
+function mailjet_list_access(){}

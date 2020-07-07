@@ -1,0 +1,85 @@
+<?php
+
+/**
+ * @file
+ * Test base for the Fivestar module.
+ */
+
+/**
+ * Base class for Fivestar Ajax tests.
+ */
+class FivestarBaseTestCase extends AJAXTestCase {
+
+  /**
+   * Use testing profile.
+   *
+   * @see http://groups.drupal.org/node/217189
+   */
+  protected $profile = 'testing';
+
+  /**
+   * A user with permission to administer Fivestar.
+   */
+  protected $adminUser;
+
+  /**
+   * A user with permission to vote.
+   */
+  protected $voterUser;
+
+  /**
+   * {@inheritdoc}
+   */
+  public function setUp() {
+    parent::setUp(array('fivestar', 'dblog'));
+
+    $type = $this->drupalCreateContentType(array('type' => 'test_node_type', 'name' => 'test_node_type'));
+    $this->adminUser = $this->drupalCreateUser(array('create test_node_type content', 'rate content'));
+    $this->voterUser = $this->drupalCreateUser(array('rate content'));
+  }
+
+  /**
+   * Add a fivestar field to a content type.
+   *
+   * @param array $options
+   *   An associative array of options for the field and instance.
+   */
+  public function createFivestarField(array $options = array()) {
+    $options = $options + array(
+      'content_type' => 'test_node_type',
+      'widget_type' => 'stars',
+      'display' => array(),
+    );
+    $field = array(
+      'field_name' => 'fivestar_test',
+      'type' => 'fivestar',
+      'cardinality' => 1,
+      'settings' => array(
+        'axis' => 'vote',
+      ),
+    );
+    $instance = array(
+      'entity_type' => 'node',
+      'field_name' => 'fivestar_test',
+      'label' => 'Fivestar test field',
+      'bundle' => $options['content_type'],
+      'widget' => array(
+        'type' => $options['widget_type'],
+        'settings' => array(
+          'widget' => array(
+            'fivestar_widget' => 'default',
+          ),
+        ),
+      ),
+      'settings' => array(
+        'axis' => 'vote',
+        'stars' => '5',
+      ),
+      'display' => $options['display'],
+    );
+
+    field_create_field($field);
+    field_create_instance($instance);
+  }
+
+}

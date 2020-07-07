@@ -1,0 +1,595 @@
+<?php
+
+/**
+ * @file
+ * Implements ATOS/SIPS payment gateway for use with Drupal Commerce.
+ */
+
+define('COMMERCE_ATOS_SIPS_API_VERSION', 'HP_2.3');
+
+/**
+ * Implements hook_menu().
+ */
+function commerce_atos_menu() {
+  $items = array();
+  // Define an always accessible path to receive autoresponse from ATOS.
+  $items['commerce-atos/ipn/%commerce_payment_method_instance'] = array(
+    'page callback' => 'commerce_atos_return_ipn',
+    'page arguments' => array(2),
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+  return $items;
+}
+
+/**
+ * Returns the default settings for ATOS SIPS payment method.
+ */
+function commerce_atos_default_settings() {
+  $default_currency = commerce_atos_get_currency_code(commerce_default_currency());
+  return array(
+    'merchant_id' => '',
+    'secret_key' => '',
+    'key_version' => '',
+    'server_url' => '',
+    'currency_code' => isset($default_currency) ? $default_currency : 'USD',
+    'card_types' => array(),
+    'language_iso' => 'en',
+    'show_payment_instructions' => TRUE,
+    'log' => array(),
+  );
+}
+
+/**
+ * Payment method callback: settings form.
+ */
+function commerce_atos_settings_form($settings) {
+  // Merge default settings into the stored settings array.
+  $settings = (array) $settings + commerce_atos_default_settings();
+
+  $form = array();
+  // Merchant ID.
+  $form['merchant_id'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Merchant ID'),
+    '#size' => 20,
+    '#default_value' => $settings['merchant_id'],
+    '#required' => TRUE,
+    '#weight' => -16,
+  );
+  // Secret Key.
+  $form['secret_key'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Secret key'),
+    '#default_value' => $settings['secret_key'],
+    '#required' => TRUE,
+    '#weight' => -14,
+  );
+  // Key version.
+  $form['key_version'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Key version'),
+    '#size' => 10,
+    '#default_value' => $settings['key_version'],
+    '#required' => TRUE,
+    '#weight' => -12,
+  );
+  // Payment server url.
+  $form['server_url'] = array(
+    '#type' => 'textfield',
+    '#title' => t('ATOS server url'),
+    '#description' => t('The url of ATOS payment server to process transactions.'),
+    '#size' => 100,
+    '#default_value' => $settings['server_url'],
+    '#required' => TRUE,
+    '#weight' => -10,
+  );
+  // Currency used for processing payments.
+  $form['currency_code'] = array(
+    '#type' => 'select',
+    '#title' => t('Currency'),
+    '#description' => t('Transactions in other currencies will be converted to this currency, so multi-currency sites must be configured to use appropriate conversion rates.'),
+    '#options' => commerce_atos_get_currency_code(NULL, TRUE),
+    '#default_value' => $settings['currency_code'],
+    '#weight' => 10,
+  );
+  // Allowed credit cards types.
+  $form['card_types'] = array(
+    '#type' => 'checkboxes',
+    '#title' => t('Limit accepted credit cards to the following types'),
+    '#description' => t('If you want to limit acceptable card types, you should only select those supported by your merchant account.') . '<br />' . t('If none are checked, any credit card type will be accepted.'),
+    '#options' => array_change_key_case(drupal_map_assoc(array('CB', 'Visa', 'Mastercard', 'Amex')), CASE_UPPER),
+    '#default_value' => $settings['card_types'],
+    '#weight' => 12,
+  );
+  // Defines the language of the payment page.
+  $form['language_iso'] = array(
+    '#type' => 'select',
+    '#title' => t('Language'),
+    '#description' => t("Select the language used on payment pages. If you run a multilingual website, the user's language will override this setting."),
+    '#options' => commerce_atos_get_languages(),
+    '#default_value' => $settings['language_iso'],
+    '#weight' => 16,
+  );
+  // Saves exchanges between the website and the payment servers.
+  $form['log'] = array(
+    '#type' => 'checkboxes',
+    '#title' => t('Log the following messages for debugging'),
+    '#options' => array(
+      'request' => t('API request messages'),
+      'response' => t('API response messages'),
+    ),
+    '#default_value' => $settings['log'],
+    '#weight' => 18,
+  );
+
+  return $form;
+}
+
+/**
+ * Payment method callback: redirect form.
+ */
+function commerce_atos_redirect_form($form, &$form_state, $order, $payment_method, $data) {
+  // Encoding data into base64.
+  $data = base64_encode($data);
+  // Add the action URL of ATOS payment server.
+  $form['#action'] = $payment_method['settings']['server_url'];
+  $form['Data'] = array(
+    '#type' => 'hidden',
+    '#value' => $data,
+  );
+  // Generate a seal to secure the data.
+  $form['Seal'] = array(
+    '#type' => 'hidden',
+    '#value' => commerce_atos_generate_data_seal($data, $payment_method),
+  );
+  $form['Encode'] = array(
+    '#type' => 'hidden',
+    '#value' => 'base64',
+  );
+  $form['InterfaceVersion'] = array(
+    '#type' => 'hidden',
+    '#value' => COMMERCE_ATOS_SIPS_API_VERSION,
+  );
+  $form['actions'] = array(
+    '#type' => 'fieldset',
+    '#collapsed' => FALSE,
+    '#attributes' => array('class' => array('checkout-buttons')),
+  );
+  $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Continue'),
+    '#attributes' => array('class' => array('checkout-continue')),
+  );
+  $form['actions']['cancel'] = array(
+    '#type' => 'link',
+    '#title' => t('Go back'),
+    '#href' => 'checkout/' . $order->order_id . '/payment/back/' . $order->data['payment_redirect_key'],
+    '#attributes' => array('class' => array('checkout-back')),
+  );
+
+  return $form;
+}
+
+/**
+ * Add elements to the payment request.
+ *
+ * This function may be used for any ATOS payment request. Add default settings
+ * to the payment request before converting them into a string.
+ *
+ * @param object $order
+ *   The order the payment is for.
+ * @param array $payment_method
+ *   The payment method instance array associated with this API request.
+ * @param array $data
+ *   An array of settings to complete.
+ *
+ * @return string
+ *   A string of param to send to ATOS.
+ */
+function commerce_atos_payment_request($order, $payment_method, $data) {
+  $settings = $payment_method['settings'];
+
+  // Adds default settings to the request.
+  $data += array(
+    'merchantId' => $settings['merchant_id'],
+    'keyVersion' => $settings['key_version'],
+    'normalReturnUrl' => url('checkout/' . $order->order_id . '/payment/return/' . $order->data['payment_redirect_key'], array('absolute' => TRUE)),
+    'automaticResponseUrl' => url('commerce-atos/ipn/' . $payment_method['instance_id'], array('absolute' => TRUE)),
+    'customerId' => $order->uid,
+    'customerIpAddress' => ip_address(),
+    'customerLanguage' => $settings['language_iso'],
+    'orderId' => $order->order_id,
+    'transactionOrigin' => 'DRUPALCOMMERCE10',
+  );
+
+  // Adds the availables credit cards.
+  $credit_cards = array_filter($settings['card_types']);
+  if (!empty($credit_cards)) {
+    $data['paymentMeanBrandList'] = implode(',', $credit_cards);
+  }
+
+  // Allow modules to alter parameters of the API request.
+  drupal_alter('commerce_atos_payment_request', $data, $order);
+
+  // Converts the array into a string of key=value.
+  foreach ($data as $key => $value) {
+    $attached_data[] = "$key=$value";
+  }
+  return implode('|', $attached_data);
+}
+
+/**
+ * Instant Payment Notification callback: process an IPN request.
+ *
+ * @param array $payment_method
+ *   The payment method instance array associated with this API request.
+ *
+ * @return bool
+ *   Return True if the request succeeds.
+ */
+function commerce_atos_return_ipn($payment_method) {
+  if (!$payment_method) {
+    watchdog('commerce_atos', 'IPN request accessed with no payment method associated.', array(), WATCHDOG_WARNING);
+    return FALSE;
+  }
+  if (!isset($_POST) || !isset($_POST['Data'])) {
+    watchdog('commerce_atos', 'IPN Request accessed with no POST data submitted.', array(), WATCHDOG_WARNING);
+    return FALSE;
+  }
+
+  // Checks the received request to determine its validity.
+  if (!isset($_POST['Seal']) || commerce_atos_generate_data_seal($_POST['Data'], $payment_method) !== $_POST['Seal']) {
+    watchdog('commerce_atos', 'The request can not be processed because it contained an invalid hash.', array(), WATCHDOG_WARNING);
+    return FALSE;
+  }
+  // Extracts the response form the received data.
+  $response = commerce_atos_parse_response($_POST['Data']);
+  if ($response && commerce_atos_process_transaction($response)) {
+    return TRUE;
+  }
+  return FALSE;
+}
+
+/**
+ * Saves a transaction received from ATOS payment server.
+ *
+ * @param array $response
+ *   An array of data received form ATOS.
+ *
+ * @return bool
+ *   Return a boolean indicating whether or not the transaction notification
+ *   succeeds.
+ */
+function commerce_atos_process_transaction($response) {
+  if ($response === FALSE || empty($response['responseCode'])) {
+    watchdog('commerce_atos', 'Transaction failed, returned from ATOS SIPS with the following POST data: <pre>@data</pre>', array('@data' => print_r($response, TRUE)), WATCHDOG_WARNING);
+    return FALSE;
+  }
+  // Ensure we can load the existing corresponding order.
+  if (!$response['orderId'] || !$order = commerce_order_load($response['orderId'])) {
+    watchdog('commerce_atos', 'Response rejected: invalid order identifier specified for order @order_number', array('@order_number' => $response['orderId']), WATCHDOG_WARNING);
+    return FALSE;
+  }
+
+  // Redirect the customer if he choose to cancel the payment on ATOS website.
+  if ($response['responseCode'] == '17') {
+    commerce_atos_payment_cancel($order);
+  }
+
+  // Ensure we can load the existing corresponding transaction.
+  if (!$response['transactionReference']) {
+    watchdog('commerce_atos', 'Response rejected: no transaction identifier specified for transaction @order_number', array('@order_number' => $response['orderId']), WATCHDOG_WARNING);
+    return FALSE;
+  }
+  else {
+    // Extract the transaction_id from the generated transactionReference.
+    list($transaction_id) = explode('T', $response['transactionReference']);
+    if (!$transaction_id || !$transaction = commerce_payment_transaction_load($transaction_id)) {
+      watchdog('commerce_atos', 'Response rejected: invalid transaction identifier specified for transaction @transaction_number', array('@transaction_number' => $response['transactionReference']), WATCHDOG_WARNING);
+      return FALSE;
+    }
+  }
+
+  // Load the payment method.
+  $payment_method = commerce_payment_method_instance_load($transaction->instance_id);
+  if (!$payment_method) {
+    watchdog('commerce_atos', 'Response rejected: unable to load the payment method for the @payment_method instance id', array('@payment_method' => $transaction->instance_id, WATCHDOG_WARNING));
+    return FALSE;
+  }
+  $transaction->remote_id = $response['transactionReference'];
+  $transaction->remote_status = $response['responseCode'];
+  $transaction->payload[REQUEST_TIME] = $response;
+  $transaction->amount = $response['amount'];
+  $transaction->currency_code = commerce_atos_get_currency_code($response['currencyCode'], TRUE);
+
+  $status = FALSE;
+  if ($response['responseCode'] == 0) {
+    $status = TRUE;
+    switch ($response['captureMode']) {
+      case 'VALIDATION':
+        $transaction->status = COMMERCE_PAYMENT_STATUS_PENDING;
+        $transaction->message = t("@description <br/> The amount will be captured in @days", array('@description' => commerce_atos_response_code($response['responseCode']), '@days' => format_plural($response['captureDay'], '1 day', '@count days')));
+        break;
+
+      case 'AUTHOR_CAPTURE';
+        $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
+        $transaction->message = t("@description", array('@description' => commerce_atos_response_code($response['responseCode'])));
+        break;
+    }
+  }
+  else {
+    $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
+    $transaction->message = t("@description", array('@description' => commerce_atos_response_code($response['responseCode'])));
+  }
+
+  // Save the transaction.
+  commerce_payment_transaction_save($transaction);
+
+  if ($payment_method['settings']['log']['response']) {
+    watchdog('commerce_atos', 'Response processed for order: @order_number - transaction: @transaction_number with the following POST data: <pre>@data</pre>', array('@order_number' => $order->order_number, '@transaction_number' => $transaction->transaction_id, '@data' => print_r($response, TRUE)), WATCHDOG_INFO);
+  }
+
+  return ($status) ? TRUE : FALSE;
+}
+
+/**
+ * Redirect the customer to the payment form.
+ *
+ * If the customer decided to cancel the payment on ATOS website redirect him to
+ * the Payment form.
+ *
+ * @param object $order
+ *   The order the payment is for.
+ */
+function commerce_atos_payment_cancel($order) {
+  watchdog('commerce_atos', 'The payment has been canceled by the end user', array(), WATCHDOG_WARNING);
+  $cancel_url = url('checkout/' . $order->order_id . '/payment/back/' . $order->data['payment_redirect_key'], array('absolute' => TRUE));
+  drupal_goto($cancel_url);
+}
+
+/**
+ * Converts an encoded response string into an array of data.
+ *
+ * @param string $data
+ *   A string to decode and to convert into an array.
+ *
+ * @return array|bool
+ *   Return FALSE if the response data wasn't valid.
+ */
+function commerce_atos_parse_response($data) {
+  if (empty($data)) {
+    return FALSE;
+  }
+  // Decode encoded data (base64URL)
+  $data = base64_decode(strtr($data, '-_,', '+/='));
+  $data = explode('|', $data);
+  foreach ($data as $value) {
+    list($key, $param) = explode('=', $value);
+    $response[$key] = (string) $param;
+  }
+
+  return $response;
+}
+
+/**
+ * Converts an encoded XML string into an array.
+ *
+ * @param string $data
+ *   A string to decode and to convert into an array.
+ *
+ * @return array|bool
+ *   Return FALSE if the response data wasn't valid.
+ */
+function commerce_atos_parse_xml_response($data) {
+  if (empty($data)) {
+    return FALSE;
+  }
+  // Decode encoded data (base64URL)
+  $data = base64_decode(strtr($data, '-_,', '+/='));
+  $data_xml = simplexml_load_string($data);
+  if (!is_object($data_xml)) {
+    return FALSE;
+  }
+  // Convert the XML into an array of data.
+  foreach ($data_xml->response[0]->attributes() as $key => $value) {
+    $response[$key] = (string) $value;
+  }
+
+  return $response;
+}
+
+/**
+ * Returns a hashed value of data.
+ *
+ * This is used to generate a seal for all requests to ATOS payment servers.
+ *
+ * @param string $data
+ *   Data to convert.
+ * @param array $payment_method
+ *   The payment method instance array associated with this API request.
+ *
+ * @return string
+ *   return the hashed value.
+ */
+function commerce_atos_generate_data_seal($data, $payment_method) {
+  return hash('sha256', $data . $payment_method['settings']['secret_key']);
+}
+
+/**
+ * Returns a unique transaction ID.
+ *
+ * This is used to generate a unique transaction id to identify for ATOS.
+ *
+ * @param string $transaction_id
+ *   A transaction id
+ *
+ * @return string
+ *   return a string compound with the $transaction_id + T + 5 characters.
+ */
+function commerce_atos_generate_transaction_reference($transaction_id) {
+  return $transaction_id . 'T' . substr(uniqid(variable_get('site_name', ''), TRUE), -5);
+}
+
+/**
+ * Formats a price amount as expected by ATOS.
+ *
+ * Converts the amount into a decimal amount and multiplied it by 100 in order
+ * to manage currencies with several decimals values.
+ *
+ * @param int $amount
+ *   An integer price amount.
+ * @param string $currency_code
+ *   The currency code of the price.
+ *
+ * @return int
+ *   The price amount as expected by ATOS API servers.
+ */
+function commerce_atos_price_amount($amount, $currency_code) {
+  // Convert the amount to a decimal amount.
+  $amount = commerce_currency_amount_to_decimal($amount, $currency_code);
+  // Round the amount to specific currency.
+  $rounded_amount = commerce_currency_round($amount, commerce_currency_load($currency_code));
+  // Multiply the amount by 100 and round it to have a valid amount for ATOS.
+  return round($rounded_amount * 100);
+}
+
+/**
+ * Returns an array of languages supported by ATOS/SIPS.
+ */
+function commerce_atos_get_languages() {
+  return array(
+    'nl' => t('Dutch'),
+    'en' => t('English'),
+    'fr' => t('French'),
+    'de' => t('German'),
+    'hi' => t('Hindi'),
+    'it' => t('Italian'),
+    'sp' => t('Spanish'),
+  );
+}
+
+/**
+ * Returns a currency code given an code.
+ *
+ * @param null $code
+ *   Null if you want all available currencies or a currency code for a special
+ *   value.
+ * @param bool $flip
+ *   Allow the reverse the function.
+ *
+ * @return array|string
+ *   Return a currency code or the full array of currencies.
+ */
+function commerce_atos_get_currency_code($code = NULL, $flip = FALSE) {
+  $currencies = array(
+    'EUR' => '978',
+    'USD' => '840',
+    'CHF' => '756',
+    'GBP' => '826',
+    'CAD' => '124',
+    'JPY' => '392',
+    'MXP' => '484',
+    'TRL' => '792',
+    'AUD' => '036',
+    'NZD' => '554',
+    'NOK' => '578',
+    'BRC' => '986',
+    'ARP' => '032',
+    'KHR' => '116',
+    'TWD' => '901',
+    'SEK' => '752',
+    'DKK' => '208',
+    'KRW' => '410',
+    'SGD' => '702',
+  );
+
+  // Get the list of currency codes enabled on the site.
+  $currencies = array_intersect_key($currencies, commerce_currencies(TRUE));
+
+  if ($flip) {
+    $currencies = array_flip($currencies);
+  }
+
+  if (empty($code)) {
+    sort($currencies);
+    return $currencies;
+  }
+  else {
+    return (isset($currencies[$code])) ? $currencies[$code] : '';
+  }
+}
+
+/**
+ * Returns an appropriate message given an response code.
+ *
+ * @param string $code
+ *   A transaction response code.
+ *
+ * @return string
+ *   Return a response description.
+ */
+function commerce_atos_response_code($code) {
+  $descriptions = array(
+    '00' => 'Transaction success, authorization accepted.',
+    '02' => 'Please phone the bank because the authorization limit on the card has been exceeded',
+    '03' => 'Invalid merchant contract',
+    '05' => 'Do not honor, authorization refused',
+    '12' => 'Invalid transaction, check the parameters sent in the request.',
+    '14' => 'Invalid card number or invalid Card Security Code or Card (for MasterCard) or invalid Card Verification Value (for Visa)',
+    '17' => 'Cancellation of payment by the end user',
+    '24' => 'Invalid status.',
+    '25' => 'Transaction not found in database',
+    '30' => 'Invalid format',
+    '34' => 'Fraud suspicion',
+    '40' => 'Operation not allowed to this merchant',
+    '60' => 'Pending transaction',
+    '63' => 'Security breach detected, transaction stopped.',
+    '75' => 'The number of attempts to enter the card number has been exceeded (Three tries exhausted)',
+    '90' => 'Acquirer server temporarily unavailable',
+    '94' => 'Duplicate transaction. (transaction reference already reserved)',
+    '97' => 'Request time-out; transaction refused',
+    '99' => 'Payment page temporarily unavailable',
+  );
+
+  return ($descriptions[$code]) ? $descriptions[$code] : '';
+}
+
+/**
+ * Implements hook_theme().
+ */
+function commerce_atos_theme() {
+  return array(
+    'commerce_atos_credit_cards_logos' => array(
+      'variables' => array(
+        'credit_cards' => NULL,
+      ),
+    ),
+  );
+}
+
+/**
+ * Theme commerce ATOS credit cards logos.
+ *
+ * Display a list of credit cards logos.
+ */
+function theme_commerce_atos_credit_cards_logos($variables) {
+  // Get the list of available credit cards.
+  $credit_cards = array_filter($variables['credit_cards']);
+  if (empty($credit_cards)) {
+    $credit_cards = array_keys($variables['credit_cards']);
+  }
+  // Generate an image for each credit card.
+  foreach ($credit_cards as $key) {
+    $image = array(
+      'path' => drupal_get_path('module', 'commerce_atos') . '/logos/' . $key . '.gif',
+      'alt' => t($key),
+      'title' => t($key),
+    );
+    $logos[] = array(
+      '#markup' => theme('image', $image),
+    );
+  }
+  // Return all available credit cards logos.
+  return '<div class="commerce-atos-credit-cards">' . drupal_render($logos)  . '</div>';
+}

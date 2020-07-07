@@ -1,0 +1,13 @@
+name = Revenue sharing basic (old)
+description = Revenue sharing for the Google Adsense module
+dependencies[] = adsense:adsense
+package = AdSense
+core = 7.x
+
+configure = admin/config/services/adsense/publisher/revenue_sharing_basic
+
+; Information added by Drupal.org packaging script on 2019-04-30
+version = "7.x-1.13"
+core = "7.x"
+project = "adsense"
+datestamp = "1556634017"

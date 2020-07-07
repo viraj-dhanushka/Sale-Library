@@ -1,0 +1,14 @@
+name = AddThis tests
+description = Module for testing AddThis functionality.
+core = 7.x
+hidden = true
+
+dependencies[] = addthis
+dependencies[] = addthis_displays
+
+; Information added by Drupal.org packaging script on 2015-06-15
+version = "7.x-4.0-alpha6"
+core = "7.x"
+project = "addthis"
+datestamp = "1434368594"
+

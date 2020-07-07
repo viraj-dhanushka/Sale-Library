@@ -1,0 +1,41 @@
+<?php
+
+
+/**
+ * @file
+ * Module code for DrupalChat Notifications.
+ */
+
+
+
+/**
+ * @todo Please document this function.
+ * @see http://drupal.org/node/1354
+ */
+function drupalchat_notifications_drupalchat_subpanel() {
+    //JON COMMENTS
+  return array('notifications' => array(
+        'name' => 'notifications',
+        'icon' => theme('image', array('path' => drupal_get_path('module', 'drupalchat_notifications') . '/icon.png', 'width' => NULL, 'height' => NULL, 'alt' => array('class' => 'icon'))),
+        'text' => t('Notifications'),
+        'contents' => theme('drupalchat_notifications_contents'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_theme().
+ */
+function drupalchat_notifications_theme() {
+  return array(
+    'drupalchat_notifications_contents' => array(),
+  );
+}
+
+/**
+ * @todo Please document this function.
+ * @see http://drupal.org/node/1354
+ */
+function theme_drupalchat_notifications_contents() {
+  return 'hey testing here';
+}

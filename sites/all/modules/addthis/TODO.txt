@@ -1,0 +1,6 @@
+- Add custom button with upload functionality for a custom button image.
+- Move basic button to main module to provide a basic implementation.
+- Create asynchronous load checkbox in settings page.
+- Refactor the order of methods in the AddThis class to collect same type of methods.
+- Refactor the rendering into classes per display type.
+- Delegate settings save validation to it corresponding display type class.

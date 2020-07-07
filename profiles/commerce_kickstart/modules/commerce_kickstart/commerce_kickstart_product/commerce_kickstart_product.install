@@ -1,0 +1,20 @@
+<?php
+
+/**
+ * Implements hook_enable().
+ *
+ * Rebuilds the feature immediately after it's enabled.
+ */
+function commerce_kickstart_product_enable() {
+  commerce_kickstart_rebuild_feature('commerce_kickstart_product');
+}
+
+/**
+ * Implements of hook_install()
+ */
+function commerce_kickstart_product_install() {
+  db_update('system')
+    ->fields(array('weight' => 10))
+    ->condition('name', 'commerce_kickstart_product')
+    ->execute();
+}

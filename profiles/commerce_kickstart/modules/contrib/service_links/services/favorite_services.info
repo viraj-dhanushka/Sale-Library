@@ -1,0 +1,10 @@
+name = Favorite Services
+description = Add the page in your favorite, work with Chrome, Firefox, IE, Opera
+core = 7.x
+package = Service Links - Services
+dependencies[] = service_links
+
+; Information added by drush on 2014-07-03
+version = "7.x-2.3+0-dev"
+project = "service_links"
+datestamp = "1404397265"

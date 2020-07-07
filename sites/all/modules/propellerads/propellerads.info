@@ -1,0 +1,10 @@
+name = PropellerAds
+description = Integrates PropellerAds in Drupal with this module.
+core = 7.x
+
+; Information added by Drupal.org packaging script on 2018-01-05
+version = "7.x-1.9"
+core = "7.x"
+project = "propellerads"
+datestamp = "1515163403"
+

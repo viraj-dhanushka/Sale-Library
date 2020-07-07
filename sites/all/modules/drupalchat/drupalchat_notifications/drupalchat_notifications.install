@@ -1,0 +1,57 @@
+<?php
+
+/**
+ * @file
+ * Installation file for the DrupalChat Notifications module.
+ */
+
+/**
+ * @todo Please document this function.
+ * @see http://drupal.org/node/1354
+ */
+function drupalchat_notifications_uninstall() {
+  // TODO The drupal_(un)install_schema functions are called automatically in D7.
+  // drupal_uninstall_schema('drupalchat_notifications')
+}
+
+/**
+ * Implements hook_schema().
+ */
+function drupalchat_notifications_schema() {
+  $schema = array();
+
+  $schema['drupalchat_notifications'] = array(
+    'fields' => array(
+      'nfid' => array(
+        'description' => 'Uid of the sender.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+      ),
+      'uid' => array(
+        'description' => 'Uid of the receiver.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+      ),
+      'message' => array(
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => TRUE,
+        'description' => 'Chat message.',
+      ),
+      'timestamp' => array(
+        'description' => 'The Unix timestamp when the XMPP account was created.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+      ),
+    ),
+    'primary key' => array('nfid'),
+    'indexes' => array(
+      'uid' => array('uid'),
+    ),
+  );
+
+  return $schema;
+}

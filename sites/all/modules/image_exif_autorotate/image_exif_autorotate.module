@@ -1,0 +1,37 @@
+<?php
+/**
+ * @file
+ * Main file for the Image EXIF Autorotate module.
+ */
+
+/**
+ * Implements hook_image_default_styles().
+ */
+function image_exif_autorotate_image_default_styles() {
+  $styles = array();
+
+  $styles['image_exif_autorotate'] = array(
+    'effects' => array(
+      array(
+        'name' => 'imagecache_autorotate',
+        'weight' => '0',
+      ),
+    ),
+  );
+
+  return $styles;
+}
+
+/**
+ * Implements hook_file_insert().
+ */
+function image_exif_autorotate_file_insert($file) {
+  list($type, $subtype) = explode('/', $file->filemime, 2);
+  if ($type == 'image') {
+    $image_style = image_style_load('image_exif_autorotate');
+    if (image_style_create_derivative($image_style, $file->uri, $file->uri)) {
+      // Resave the file so it updates the file size and other properties.
+      file_save($file);
+    }
+  }
+}

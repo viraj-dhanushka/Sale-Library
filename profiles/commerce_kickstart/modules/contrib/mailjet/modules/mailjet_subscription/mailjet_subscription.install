@@ -1,0 +1,86 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the node module.
+ *
+ * Implements hook_schema().
+ */
+function mailjet_subscription_schema() {
+
+  $schema['signup_units_data'] = array(
+    'description' => 'The base table for signup units data.',
+    'fields' => array(
+      'id' => array(
+        'description' => 'The primary identifier.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'created' => array(
+        'description' => 'The Unix timestamp when the data was created.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'updated' => array(
+        'description' => 'The Unix timestamp when the data was most recently saved.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'title' => array(
+        'description' => 'The title of this data, always treated as non-markup plain text.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'type' => array(
+        'description' => 'The type of this bundle.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+    ),
+    'primary key' => array('id'),
+  );
+
+
+  return $schema;
+}
+
+/*
+ * Implements hook_update_N()
+ */
+
+function mailjet_subscription_update_7100() {
+  $schema = mailjet_subscription_schema();
+
+  //create table of store title,id,changed and created date of signup block forms
+  if (!db_table_exists('signup_units_data')) {
+    db_create_table('signup_units_data', $schema['signup_units_data']);
+  }
+
+}
+
+
+/**
+ * Implements hook_disable().
+ */
+function mailjet_subscription_disable() {
+  variable_set('mailjet_fields',field_info_instances('signup_units_data','main'));
+  variable_set('MAILEJT_SUBSCRIBE', FALSE);
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function mailjet_subscription_uninstall(){
+  $signup_field_instance = variable_get('mailjet_fields');
+
+  foreach ($signup_field_instance as $field_data) {
+    field_delete_instance($field_data);
+  }
+}

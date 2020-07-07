@@ -1,0 +1,284 @@
+<?php
+
+use Behat\Behat\Context\Context;
+use Behat\Behat\Context\SnippetAcceptingContext;
+use Behat\Gherkin\Node\PyStringNode;
+use Behat\Gherkin\Node\TableNode;
+use Drupal\DrupalExtension\Context\RawDrupalContext;
+use Behat\Behat\Context\ClosuredContextInterface,
+    Behat\Behat\Context\TranslatedContextInterface,
+    Behat\Behat\Event\ScenarioEvent,
+    Behat\Behat\Exception\PendingException;
+use Drupal\Component\Utility\Random;
+
+require 'vendor/autoload.php';
+
+//
+// Require 3rd-party libraries here:
+//
+//   require_once 'PHPUnit/Autoload.php';
+//   require_once 'PHPUnit/Framework/Assert/Functions.php';
+//
+
+/**
+ * Features context.
+ */
+class FeatureContext extends RawDrupalContext implements SnippetAcceptingContext {
+  /**
+   * Initializes context.
+   * Every scenario gets its own context object.
+   *
+   * @param array $parameters context parameters (set them up through behat.yml)
+   */
+  public function __construct() {
+    // Initialize your context here
+  }
+
+  /**
+   * @Given /^I (?:should |)see the following <texts>$/
+   */
+  public function iShouldSeeTheFollowingTexts(TableNode $table) {
+    $page = $this->getSession()->getPage();
+    $table = $table->getHash();
+    foreach ($table as $key => $value) {
+      $text = $table[$key]['texts'];
+      if ($page->hasContent($text) === FALSE) {
+        throw new Exception("The text '" . $text . "' was not found");
+      }
+    }
+  }
+
+  protected function randomString($number = 10) {
+    return 'abcdefghijk';
+  }
+
+  /**
+   * @Given /^I (?:should |)see the following <links>$/
+   */
+  public function iShouldSeeTheFollowingLinks(TableNode $table) {
+    $page = $this->getSession()->getPage();
+    $table = $table->getHash();
+    foreach ($table as $key => $value) {
+      $link = $table[$key]['links'];
+      $result = $page->findLink($link);
+      if (empty($result)) {
+        throw new Exception("The link '" . $link . "' was not found");
+      }
+    }
+  }
+
+  /**
+   * @Given /^I should not see the following <links>$/
+   */
+  public function iShouldNotSeeTheFollowingLinks(TableNode $table) {
+    $page = $this->getSession()->getPage();
+    $table = $table->getHash();
+    foreach ($table as $key => $value) {
+      $link = $table[$key]['links'];
+      $result = $page->findLink($link);
+      if (!empty($result)) {
+        throw new Exception("The link '" . $link . "' was found");
+      }
+    }
+  }
+
+  /**
+   * Function to check if the field specified is outlined in red or not
+   *
+   * @Given /^the field "([^"]*)" should be outlined in red$/
+   *
+   * @param string $field
+   *   The form field label to be checked.
+   */
+  public function theFieldShouldBeOutlinedInRed($field) {
+    $page = $this->getSession()->getPage();
+    // get the object of the field
+    $formField = $page->findField($field);
+    if (empty($formField)) {
+      throw new Exception('The page does not have the field with label "' . $field . '"');
+    }
+    // get the 'class' attribute of the field
+    $class = $formField->getAttribute("class");
+    // we get one or more classes with space separated. Split them using space
+    $class = explode(" ", $class);
+    // if the field has 'error' class, then the field will be outlined with red
+    if (!in_array("error", $class)) {
+      throw new Exception('The field "' . $field . '" is not outlined with red');
+    }
+  }
+
+  /**
+   * Helper function to fetch user details stored in behat.local.yml.
+   *
+   * @param string $type
+   *   The user type, e.g. drupal.
+   *
+   * @param string $name
+   *   The username to fetch the password for.
+   *
+   * @return string
+   *   The matching password or FALSE on error.
+   */
+  public function fetchUserDetails($type, $name) {
+    $property_name = $type . '_users';
+    try {
+      $property = $this->$property_name;
+      $details = $property[$name];
+      return $details;
+    } catch (Exception $e) {
+      throw new Exception("Non-existant user/password for $property_name:$name please check behat.local.yml.");
+    }
+  }
+
+  /**
+   * Authenticates a user.
+   *
+   * @Given /^I am logged in as "([^"]*)" with the password "([^"]*)"$/
+   */
+  public function iAmLoggedInAsWithThePassword($username, $passwd) {
+    $user = $this->whoami();
+
+    if (strtolower($user) == strtolower($username)) {
+      // Already logged in.
+      return;
+    }
+
+    $element = $this->getSession()->getPage();
+    if (empty($element)) {
+      throw new Exception('Page not found');
+    }
+
+    // Go to the user login page.
+    $this->getSession()->visit($this->locatePath('/user/login'));
+
+    // If I see this, I'm not logged in at all so log the user in.
+    $element->fillField('Username', $username);
+    $element->fillField('Password', $passwd);
+    $submit = $element->findButton('Log in');
+    if (empty($submit)) {
+      throw new Exception('No submit button at ' . $this->getSession()->getCurrentUrl());
+    }
+
+    // Log in.
+    $submit->click();
+    $user = $this->whoami();
+    if (strtolower($user) != strtolower($username)) {
+      throw new Exception('Could not log user in.');
+    }
+
+    // Successfully logged in.
+    return;
+  }
+
+  /**
+   * Private function for the whoami step.
+   */
+  private function whoami() {
+    $element = $this->getSession()->getPage();
+    // Go to the user page.
+    $this->getSession()->visit($this->locatePath('/user'));
+    if ($find = $element->find('css', 'h1')) {
+      $page_title = $find->getText();
+      if ($page_title) {
+        return str_replace('hello, ', '', strtolower($page_title));
+      }
+    }
+    return FALSE;
+  }
+
+  /**
+   * @When /^(?:|I )click on Quick Edit link$/
+   *
+   * Click on Quick edit.
+   */
+  public function clickOnQuickEdit() {
+    $this->getSession()->getPage()->clickLink('Quick edit');
+    $this->getSession()->wait(5000, 'jQuery(".entity-commerce-order").length > 0');
+  }
+
+  /**
+   * @Given /^(?:|I )wait for AJAX loading to finish$/
+   *
+   * Wait for the jQuery AJAX loading to finish. ONLY USE FOR DEBUGGING!
+   */
+  public function iWaitForAJAX() {
+    $this->getSession()->wait(5000, 'jQuery.active === 0');
+  }
+
+  /**
+   * @Given /^(?:|I )wait(?:| for) (\d+) seconds?$/
+   *
+   * Wait for the given number of seconds. ONLY USE FOR DEBUGGING!
+   */
+  public function iWaitForSeconds($arg1) {
+    sleep($arg1);
+  }
+
+  /**
+   * @AfterScenario @variables
+   */
+  public function afterScenarioVariableCleanUp(\Behat\Behat\Hook\Scope\AfterScenarioScope $scope) {
+    // Clean up variables after each scenario tagged @variable.
+    variable_del('commerce_kickstart_user_breadcrumbs');
+  }
+
+  /**
+   * @Given user breadcrumbs are enabled
+   */
+  public function userBreadcrumbsAreEnabled() {
+    $this->getDrupal();
+    variable_set('commerce_kickstart_user_breadcrumbs', TRUE);
+  }
+
+  /**
+   * @When I resize the browser to mobile
+   */
+  public function iResizeTheBrowserToMobile() {
+    $this->getSession()->resizeWindow(200, 600, 'current');
+  }
+
+  /**
+   * @When I select :arg1 from collection dropdown
+   */
+  public function iSelectFromCollectionDropdown($arg1) {
+    $this->getSession()->wait(5000, 'jQuery("#selectnav3").length > 0');
+    $this->getSession()->getPage()->selectFieldOption("selectnav3", $arg1);
+  }
+
+  /**
+   * @BeforeScenario
+   */
+  public function beforeScenario()
+  {
+    if (!$this->runningJavascript()) {
+      return;
+    }
+    $this->getSession()->resizeWindow(1440, 900, 'current');
+  }
+
+  /**
+   * Returns whether the scenario is running in a browser that can run Javascript or not.
+   *
+   * @return boolean
+   */
+  protected function runningJavascript() {
+    return get_class($this->getSession()->getDriver()) !== 'Behat\Mink\Driver\GoutteDriver';
+  }
+
+  /**
+   * @When I choose the radio button :label with the id :id
+   */
+  public function assertSelectRadioByLabel($label, $id = '') {
+    $element = $this->getSession()->getPage();
+    $radiobutton = $id ? $element->findById($id) : $element->find('named', array('radio', $this->getSession()->getSelectorsHandler()->xpathLiteral($label)));
+    if ($radiobutton === NULL) {
+      throw new \Exception(sprintf('The radio button with "%s" was not found on the page %s', $id ? $id : $label, $this->getSession()->getCurrentUrl()));
+    }
+    $radio_id = $radiobutton->getAttribute('id');
+    $labelonpage = $element->find('css', "label[for='$radio_id']");
+    if ($label != $labelonpage->getText()) {
+      throw new \Exception(sprintf("Button with id '%s' has label '%s' instead of '%s' on the page %s", $id, $labelonpage, $label, $this->getSession()->getCurrentUrl()));
+    }
+    $labelonpage->click();
+  }
+}

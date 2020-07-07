@@ -1,0 +1,104 @@
+.mm-menu.mm-theme-light {
+  background: #f3f3f3;
+  color: #000;
+  font-family: Helvetica, sans-serif;
+  z-index: 10000;
+}
+.mm-menu.mm-theme-light > .mm-navbar {
+  background-image: url('data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4gPHN2ZyB2ZXJzaW9uPSIxLjEiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJncmFkIiBncmFkaWVudFVuaXRzPSJvYmplY3RCb3VuZGluZ0JveCIgeDE9IjAuNSIgeTE9IjAuMCIgeDI9IjAuNSIgeTI9IjEuMCI+PHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI2VkZWRlZCIvPjxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI2NjY2NjYyIvPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxyZWN0IHg9IjAiIHk9IjAiIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JhZCkiIC8+PC9zdmc+IA==');
+  background-size: 100%;
+  background-image: -webkit-gradient(linear, 50% 0%, 50% 100%, color-stop(0%, #ededed), color-stop(100%, #cccccc));
+  background-image: -moz-linear-gradient(top, #ededed 0%, #cccccc 100%);
+  background-image: -webkit-linear-gradient(top, #ededed 0%, #cccccc 100%);
+  background-image: linear-gradient(to bottom, #ededed 0%, #cccccc 100%);
+}
+.mm-menu.mm-theme-light > .mm-navbar a.mm-title {
+  font-size: 1.5em;
+  color: #000;
+}
+.mm-menu.mm-theme-light > .mm-navbar a.mm-prev {
+  color: #000;
+}
+.mm-menu.mm-theme-light > .mm-navbar a.mm-prev:before {
+  border-color: #000;
+}
+.mm-menu.mm-theme-light > .mm-navbar a.mm-next {
+  color: #000;
+}
+.mm-menu.mm-theme-light > .mm-navbar a.mm-next:after {
+  border-color: #000;
+}
+.mm-menu.mm-theme-light.mm-hasnavbar-top-1 {
+  border-bottom: 1px solid #a6a6a6;
+}
+.mm-menu.mm-theme-light.mm-hasnavbar-top-1 > .mm-navbar-top {
+  height: 50px;
+  line-height: 50px;
+}
+.mm-menu.mm-theme-light.mm-hasnavbar-top-1 > .mm-navbar-top > * {
+  padding: 0;
+  height: 50px;
+  line-height: 50px;
+}
+.mm-menu.mm-theme-light.mm-hasnavbar-top-1 > .mm-panels {
+  top: 50px;
+}
+.mm-menu.mm-theme-light.mm-hasnavbar-bottom-1 {
+  border-top: 1px solid #a6a6a6;
+}
+.mm-menu.mm-theme-light.mm-hasnavbar-bottom-1 > .mm-navbar-bottom {
+  height: 30px;
+  line-height: 30px;
+}
+.mm-menu.mm-theme-light.mm-hasnavbar-bottom-1 > .mm-navbar-bottom > * {
+  padding: 0;
+  height: 30px;
+  line-height: 30px;
+}
+.mm-menu.mm-theme-light.mm-hasnavbar-bottom-1 > .mm-navbar-bottom .mm-title {
+  font-size: 1em;
+  color: #000;
+}
+.mm-menu.mm-theme-light.mm-hasnavbar-bottom-1 > .mm-panels {
+  bottom: 30px;
+}
+.mm-menu.mm-theme-light .mm-panel > .mm-search {
+  border-top: 1px solid #fff;
+  border-bottom: 1px solid #ccc;
+}
+.mm-menu.mm-theme-light .mm-listview > li {
+  border-top: 1px solid #fff;
+  border-bottom: 1px solid #ccc;
+}
+.mm-menu.mm-theme-light .mm-listview > li:after {
+  border: none;
+}
+.mm-menu.mm-theme-light .mm-listview > li .mm-arrow:after, .mm-menu.mm-theme-light .mm-listview > li .mm-next:after {
+  right: 15px;
+  border-color: #000;
+  width: 5px;
+  height: 5px;
+}
+.mm-menu.mm-theme-light .mm-listview li.mmenu-expanded {
+  border-top: 1px solid white;
+  border-bottom: 1px solid #a6a6a6;
+}
+.mm-menu.mm-theme-light .mm-listview li.mmenu-expanded .mmenu-block-expanded {
+  padding: 5px 10px 5px 10px !important;
+  background-image: url('data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4gPHN2ZyB2ZXJzaW9uPSIxLjEiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJncmFkIiBncmFkaWVudFVuaXRzPSJvYmplY3RCb3VuZGluZ0JveCIgeDE9IjAuNSIgeTE9IjAuMCIgeDI9IjAuNSIgeTI9IjEuMCI+PHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI2VkZWRlZCIvPjxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI2NjY2NjYyIvPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxyZWN0IHg9IjAiIHk9IjAiIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JhZCkiIC8+PC9zdmc+IA==');
+  background-size: 100%;
+  background-image: -webkit-gradient(linear, 50% 0%, 50% 100%, color-stop(0%, #ededed), color-stop(100%, #cccccc));
+  background-image: -moz-linear-gradient(top, #ededed 0%, #cccccc 100%);
+  background-image: -webkit-linear-gradient(top, #ededed 0%, #cccccc 100%);
+  background-image: linear-gradient(to bottom, #ededed 0%, #cccccc 100%);
+}
+.mm-menu.mm-theme-light em.mm-counter {
+  color: #000;
+  right: 30px;
+}
+.mm-menu.mm-theme-light em.mm-counter + a.mm-next {
+  width: 60px;
+}
+.mm-menu.mm-theme-light i {
+  margin-right: 10px;
+}

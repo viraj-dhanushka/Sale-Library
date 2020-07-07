@@ -1,0 +1,13 @@
+name = Webform Purge
+description = Purge webform entries after specified age
+core = 7.x
+dependencies[] = webform
+package = Webform
+configure = admin/config/webform_purge/manage
+
+; Information added by Drupal.org packaging script on 2017-04-11
+version = "7.x-1.0"
+core = "7.x"
+project = "webform_purge"
+datestamp = "1491924845"
+

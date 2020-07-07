@@ -1,0 +1,57 @@
+<?php
+
+/**
+ * @file
+ * Install file of the adsense_click module.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function adsense_click_schema() {
+  $schema['adsense_clicks'] = array(
+    'fields' => array(
+      'aid' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+      ),
+      'ip' => array(
+        'type' => 'varchar',
+        'length' => '15',
+        'not null' => FALSE,
+        'default' => '0',
+      ),
+      'timestamp' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'path' => array(
+        'type' => 'varchar',
+        'length' => '255',
+        'not null' => FALSE,
+        'default' => '',
+      ),
+      'title' => array(
+        'type' => 'varchar',
+        'length' => '255',
+        'not null' => FALSE,
+        'default' => '',
+      ),
+      'referrer' => array(
+        'type' => 'varchar',
+        'length' => '255',
+        'not null' => FALSE,
+        'default' => '',
+      ),
+    ),
+    'primary key' => array('aid'),
+    'indexes' => array(
+      'path' => array('path'),
+      'timestamp' => array('timestamp'),
+    ),
+  );
+
+  return $schema;
+}

@@ -1,0 +1,61 @@
+<?php
+/**
+ * @file
+ * Class to test the AddThis Js functionality.
+ */
+
+/**
+ * AddThisJsTest tests
+ */
+class AddThisJsTest extends DrupalWebTestCase {
+
+  /**
+   * Simple test info
+   */
+  public static function getInfo() {
+    return array(
+      'name' => 'Javascript test',
+      'description' => 'Testing the Javascript output',
+      'group' => 'AddThis',
+      );
+  }
+
+  /**
+   * Setup the test environment.
+   */
+  public function setUp() {
+    parent::setUp(array('addthis', 'addthis_test'));
+  }
+
+  /**
+   * Test the presense of certain Javascript elements.
+   */
+  public function testJavascriptPresent() {
+    $this->drupalGet('<front>');
+
+    // AddThis settings are not present.
+    $settings = $this->drupalGetSettings();
+    $this->assertTrue(empty($settings['addthis']), 'Drupal.settings.addthis is not present.');
+
+    // AddThis settings are not present.
+    $this->drupalGet('addthis/test/1');
+    $settings = $this->drupalGetSettings();
+    $this->assertTrue(empty($settings['addthis']), 'Drupal.settings.addthis is not present on test page.');
+
+    // AddThis settings is present.
+    $this->drupalGet('addthis/test/2');
+    $settings = $this->drupalGetSettings();
+    $this->assertTrue(!empty($settings['addthis']), 'Drupal.settings.addthis is present on test page and loaded on hook_page_build().');
+
+  }
+
+  /**
+   *
+   * 1. Setup with include always, load at DOM ready.
+   *    - Settings should be there
+   *
+   * 2. Setup with include never
+   *
+   */
+
+}

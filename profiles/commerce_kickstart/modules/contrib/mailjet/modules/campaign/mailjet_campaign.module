@@ -1,0 +1,287 @@
+<?php
+
+use Mailjet\Resources;
+use MailjetTools\MailjetApi;
+
+/**
+ * Implements hook_menu().
+ */
+function mailjet_campaign_menu() {
+  $items = array();
+
+  $items['admin/config/system/mailjet/mailjet-panel/campaign'] = array(
+    'title' => 'Campaigns',
+    'page callback' => 'mailjet_campaign_iframe',
+    'access arguments' => array('administer mailjet module'),
+    'description' => 'Click here to access the Mailjet drag-and-drop newsletter tool, templates and more for your marketing campaigns',
+    'file path' => drupal_get_path('module', 'mailjet_campaign'),
+    'file' => 'includes/mailjet_campaign.iframes.inc',
+    'type' => MENU_LOCAL_ACTION,
+    'weight' => 2,
+  );
+
+  $items['admin/mailjet/campaign/alter_callback'] = array(
+    'title' => 'Campaigns',
+    'page callback' => '_mailjet_campaign_alter_callback',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ *  Implementation of hook_views_api().
+ */
+function mailjet_campaign_views_api() {
+  return array(
+    'api' => 3,
+    'path' => drupal_get_path('module', 'mailjet_campaign') . '/includes/views',
+  );
+}
+
+/**
+ * Implements hook_entity_info().
+ */
+function mailjet_campaign_entity_info() {
+  $data = array();
+
+  $data['mailjet_campaign'] = array(
+    'label' => t('Campaign'),
+    'plural label' => t('Campaigns'),
+    'entity class' => 'Entity',
+    'controller class' => 'EntityAPIController',
+    'views controller class' => 'EntityDefaultViewsController',
+    'base table' => 'mailjet_campaign',
+    'fieldable' => FALSE,
+    'entity keys' => array(
+      'id' => 'campaign_id',
+      'label' => 'campaign_id',
+    ),
+    'bundles' => array(),
+    'load hook' => 'mailjet_campaign_load',
+    'view modes' => array(
+      'full' => array(
+        'label' => t('Administrator'),
+        'custom settings' => FALSE,
+      ),
+    ),
+    'uri callback' => 'mailjet_campaign_uri',
+    'access callback' => 'mailjet_campaign_access',
+    'token type' => 'mailjet_campaign',
+    'metadata controller class' => '',
+    'permission labels' => array(
+      'singular' => t('campaign'),
+      'plural' => t('campaigns'),
+    ),
+  );
+
+  return $data;
+}
+
+/**
+ * Determines whether the given user has access to a Mailjet campaign.
+ *
+ * @param $op
+ *   The operation being performed. One of 'view', 'update', 'create', 'delete'
+ *   or just 'edit' (being the same as 'create' or 'update').
+ * @param $account
+ *   The user to check for. Leave it to NULL to check for the global user.
+ * @return boolean
+ *   Whether access is allowed or not.
+ */
+function mailjet_campaign_access($op, $mailjet_campaign = NULL, $account = NULL) {
+  if (user_access('administer mailjet module', $account)) {
+    return TRUE;
+  }
+  return FALSE;
+}
+
+/**
+ * Loads campaign by id.
+ */
+function mailjet_campaign_load($campaign_id) {
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'mailjet_campaign')
+      ->propertyCondition('campaign_id', $campaign_id);
+  $result = $query->execute();
+  $return = array();
+  if (!empty($result['mailjet_campaign'])) {
+    foreach ($result['mailjet_campaign'] as $campaign) {
+      $return[] = entity_load_single('mailjet_campaign', $campaign->campaign_id);
+    }
+  }
+  return $return ? reset($return) : FALSE;
+}
+
+/**
+ * Creates new campaign.
+ */
+function mailjet_campaign_new($campaign_id = '') {
+  return entity_get_controller('mailjet_campaign')->create(array(
+        'campaign_id' => !empty($campaign_id) ? $campaign_id : '',
+  ));
+}
+
+/**
+ * Saves new campaign.
+ */
+function mailjet_campaign_save($campaign) {
+  return entity_get_controller('mailjet_campaign')->save($campaign);
+}
+
+/**
+ * Does a replacement of a link in a email template, adds a tracking token to the link.
+ */
+function _mailjet_campaign_alter_callback() {
+
+    // No Event sent.
+    if ($_SERVER['REQUEST_METHOD'] != 'POST') {
+        drupal_not_found();
+    }
+
+  $post = trim(file_get_contents('php://input'));
+  watchdog('mailjet-feri', print_r($post, TRUE));
+  $postDecoded = json_decode($post);
+
+  $html = '';
+  $mailjetApiClient = mailjet_new();
+
+  if (isset($postDecoded->data)) {
+    $data = (object) $postDecoded->data;
+  }
+  elseif (isset($postDecoded->mailjet)) {
+    $mailjet = $postDecoded->mailjet;
+    $data = $mailjet->data;
+  }
+
+  // Get request response.
+  if (isset($postDecoded->response)) {
+    $response = (object) $postDecoded->response;
+  }
+
+
+  if ($response->message == 'html saved successfully') {
+
+    // Get the HTML for the email template.
+    $result = $mailjetApiClient->get(Resources::$NewsletterDetailcontent, ['id' => $data->campaign_id]);
+    if ($result->success() && $result->getCount() > 0) {
+          $campaignContent = $result->getData();
+    } else {
+      $result = $mailjetApiClient->get(Resources::$CampaigndraftDetailcontent, ['id' => $data->campaign_id]);
+      if ($result->success() && $result->getCount() > 0) {
+          $campaignContent = $result->getData();
+      }
+      $isCampaignDraft = true;
+    }
+
+    if (!empty($campaignContent[0]['Html-part'])) {
+        $html = $campaignContent[0]['Html-part'];
+    }
+
+    $get_body_part_html = strstr($html, '<!-- #nl_content -->');
+    $actuall_body_part = strstr($get_body_part_html, '</table>', TRUE);
+
+    // Get all links in the body.
+    $links = explode('<a', $actuall_body_part);
+    $array_links = array();
+    if (!empty($links)) {
+      foreach ($links as $key => $value) {
+        if ($key != 0) {
+          $link_beginning = explode('href="', $value);
+          $link = strstr($link_beginning[1], '"', TRUE);
+          $array_links[] = $link;
+        }
+      }
+
+      // To avoid duplication use only the unique values.
+      $array_links = array_unique($array_links);
+      foreach ($array_links as $k => $v) {
+        $replacement_url = $v . '?token=' . $data->campaign_id;
+        $html = str_replace($v, $replacement_url, $html);
+      }
+    }
+
+      // Update campaign HTML content
+      $body = [
+          'Html-part' => $html,
+      ];
+      if (!$isCampaignDraft) {
+          $result = $mailjetApiClient->put(Resources::$NewsletterDetailcontent,
+              ['id' => $data->campaign_id, 'body' => $body]);
+          if ($result->success() && $result->getCount() > 0) {
+              $res = $result->getData();
+          }
+      } else {
+          $result = $mailjetApiClient->put(Resources::$CampaigndraftDetailcontent,
+              ['id' => $data->campaign_id, 'body' => $body]);
+          if ($result->success() && $result->getCount() > 0) {
+              $res = $result->getData();
+          }
+      }
+  }
+
+  if ($response->message == 'campaign added successfully') {
+    $user_infos = mailjet_user_infos();
+
+    $user_id = $user_infos['UserID'];
+
+    $filters = [
+      'User' => $user_id,
+    ];
+    $response = $mailjetApiClient->get(Resources::$Apikey, ['filters' => $filters]);
+    if ($response->success()) {
+      $akid = $response->getData()[0]['ID'];
+    }
+
+    $filters = [
+      'Akid' => $akid,
+      'Sort' => 'ID DESC',
+      'FromTs' => '1',
+      'Limit' => '1',
+    ];
+    $response = $mailjetApiClient->get(Resources::$Campaign, ['filters' => $filters]);
+    if ($response->success()) {
+      $result_campaign = $response->getData();
+    }
+
+    $created_date = strtotime($result_campaign[0]['CreatedAt']);
+    $campaign_name = $result_campaign[0]['Subject'];
+
+    $mailjet_campaign = mailjet_campaign_new($data->campaign_id);
+    $mailjet_campaign->name = $campaign_name;
+    $mailjet_campaign->created = $created_date;
+    mailjet_campaign_save($mailjet_campaign);
+  }
+
+
+  if ($data->campaign_id && strpos($data->next_step_url, "summary") !== FALSE) {
+
+    if (
+        isset($data->block_type) && $data->block_type && isset($data->block_content) && $data->block_content
+    ) {
+      $html = $data->block_content;
+      watchdog('mailjet-feri', $html);
+      $html = str_replace("test msg", "new msg", $html);
+      watchdog('mailjet-feri', $html);
+
+      $res = array(
+        "code" => 1, // necessary for Mailjet's system to proceed
+        "continue" => TRUE,
+        "continue_address" => $data->next_step_url,
+        "block_content" => $html,
+      );
+
+      echo json_encode($res);
+      drupal_exit();
+    }
+  }
+  $res = array(
+    "code" => 1, // necessary for Mailjet's system to proceed
+    "continue" => TRUE,
+    "continue_address" => $data->next_step_url,
+  );
+
+  echo json_encode($res);
+  drupal_exit();
+}

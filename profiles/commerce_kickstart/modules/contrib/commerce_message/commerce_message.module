@@ -1,0 +1,151 @@
+<?php
+
+// Until Entity API can load this itself.
+require_once dirname(__FILE__) . '/includes/commerce_message.message.inc';
+
+/**
+ * Implements hook_views_api().
+ */
+function commerce_message_views_api() {
+  return array(
+    'api' => 3,
+    'path' => drupal_get_path('module', 'commerce_message') . '/includes/views',
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function commerce_message_menu() {
+  // History tab on orders.
+  $items['admin/commerce/orders/%commerce_order/history'] = array(
+    'title' => t('History'),
+    'page callback' => 'commerce_message_history',
+    'page arguments' => array(3),
+    'access callback' => 'commerce_order_access',
+    'access arguments' => array('view', 3),
+    'type' => MENU_LOCAL_TASK,
+    'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
+    'weight' => 11,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_module_implements_alter().
+ * Move commerce_message_default_message_type_alter()
+ * to the end of the "hook_default_message_type_alter" hooks (execution) list.
+ */
+function commerce_message_module_implements_alter(&$implementations, $hook) {
+  if ($hook == 'default_message_type_alter') {
+    $group = $implementations['commerce_message'];
+    unset($implementations['commerce_message']);
+    $implementations['commerce_message'] = $group;
+  }
+}
+
+/**
+ * Implements hook_message_presave().
+ *
+ * We cannot use a token to show the order-summary, since both Token and
+ * Entity API modules invoke token_generate() which results with an array
+ * instead of a string with the replacement text.
+ *
+ * Instead, upon saving the message for the first time we inject an
+ * argument with a callback, that will return the order summary.
+ *
+ * @link http://drupal.org/node/1272560
+ */
+function commerce_message_message_presave(Message $message) {
+  // Only support unsaved messages that re-use our order reference field.
+  $wrapper = entity_metadata_wrapper('message', $message);
+  if (!empty($message->mid) || !isset($wrapper->message_commerce_order)) {
+    return;
+  }
+
+  $message->arguments['!order-summary'] = array(
+    'callback' => 'commerce_message_order_summary',
+    'pass message' => TRUE,
+  );
+}
+
+/**
+ * Message callback; Show order summary.
+ *
+ * @param Message $message
+ *   The Message entity.
+ *
+ * @return string
+ *   The output of the View.
+ */
+function commerce_message_order_summary(Message $message) {
+  $wrapper = entity_metadata_wrapper('message', $message);
+  $view = views_get_view('commerce_cart_summary');
+  $view->set_arguments(array($wrapper->message_commerce_order->getIdentifier()));
+  $view->hide_admin_links = TRUE;
+
+  // Disable SQL query rewrite so this renders properly for token.
+  // @link https://www.drupal.org/node/1895418
+  $view->display['default']->display_options['query']['options']['disable_sql_rewrite'] = TRUE;
+
+  return $view->preview();
+}
+
+/**
+ * Displays the complete history for the given order.
+ */
+function commerce_message_history($order) {
+  $arguments = array($order->order_id);
+  $view = views_get_view('commerce_message_messages');
+  $view->set_display('block_1');
+  $view->set_arguments($arguments);
+  $view->override_url = $_GET['q'];
+
+  return $view->preview();
+}
+
+/**
+ * Implements hook_flush_caches().
+ */
+function commerce_message_flush_caches() {
+  commerce_message_message_field_refresh();
+}
+
+/**
+ * Implements hook_multilingual_settings_changed().
+ */
+function commerce_message_multilingual_settings_changed() {
+  // Rebuild the message types after modifying the language settings.
+  entity_defaults_rebuild(array('message_type'));
+}
+
+/*
+ * Implements of hook_element_info_alter().
+ * extra process function for filter format to alter the format options
+ */
+function commerce_message_element_info_alter(&$type) {
+  // Our process callback must run immediately after filter_process_format().
+  $filter_process_format_location = array_search('filter_process_format', $type['text_format']['#process']);
+  $replacement = array('filter_process_format', 'commerce_message_filter_process_format');
+  array_splice($type['text_format']['#process'], $filter_process_format_location, 1, $replacement);
+}
+
+/**
+ * Process callback for form elements that have a text format selector attached.
+ *
+ * This callback runs after filter_process_format() and performs additional
+ * modifications to the form element.
+ *
+ * @see filter_process_format()
+ *
+ * Disable the Commerce Order Message format
+ * for all entity types other than message_type type.
+ */
+function commerce_message_filter_process_format($element) {
+  if (isset($element['#entity_type']) && $element['#entity_type'] != 'message_type') {
+    $element['format']['format']['#options'] = array_diff_key($element['format']['format']['#options'], array('commerce_order_message' => 'commerce_order_message'));
+  }
+
+  return $element;
+}

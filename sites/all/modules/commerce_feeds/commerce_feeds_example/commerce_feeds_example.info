@@ -1,0 +1,21 @@
+core = "7.x"
+dependencies[] = "commerce"
+dependencies[] = "commerce_feeds"
+dependencies[] = "commerce_price"
+dependencies[] = "commerce_product"
+dependencies[] = "features"
+dependencies[] = "feeds"
+description = "A Drupal Commerce product and product reference node importer built with feeds"
+features[ctools][] = "feeds:feeds_importer_default:1"
+features[feeds_importer][] = "product_importer"
+features[feeds_importer][] = "product_reference_importer"
+name = "Commerce Feeds Example"
+package = "Commerce (contrib)"
+php = "5.2.4"
+
+; Information added by Drupal.org packaging script on 2015-11-16
+version = "7.x-1.4"
+core = "7.x"
+project = "commerce_feeds"
+datestamp = "1447686252"
+

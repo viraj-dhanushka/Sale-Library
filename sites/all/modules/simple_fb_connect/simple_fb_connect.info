@@ -1,0 +1,14 @@
+name = Simple FB Connect
+description = "A simple module to allow users to log in/sign up with their Facebook account"
+package = Facebook
+core = 7.x
+dependencies[] = libraries
+dependencies[] = xautoload
+configure = admin/config/people/simple-fb-connect
+
+; Information added by Drupal.org packaging script on 2018-03-02
+version = "7.x-2.9"
+core = "7.x"
+project = "simple_fb_connect"
+datestamp = "1519985528"
+

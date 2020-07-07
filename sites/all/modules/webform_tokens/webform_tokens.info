@@ -1,0 +1,13 @@
+name = Webform Tokens
+description = As of Webform 7.x-4.x, tokens are included in Webform itself. This module only upgrade old-style Webform Tokens module tokens used in FillPDF to the new Webform 4 tokens. Once the updates in this module have been run, you should uninstall this module.
+core = 7.x
+package = Webform
+
+dependencies[] = webform (4.x)
+
+; Information added by Drupal.org packaging script on 2014-05-15
+version = "7.x-4.0"
+core = "7.x"
+project = "webform_tokens"
+datestamp = "1400170728"
+

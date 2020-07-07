@@ -1,0 +1,406 @@
+<?php
+
+/**
+ * @file
+ * Displays Google AdSense ads on Drupal pages.
+ *
+ * This is the core module of the AdSense package, with the Drupal hooks
+ * and other administrative functions.
+ */
+
+define('ADSENSE_MANAGED_AD_BLOCK_DEFAULT', '');
+define('ADSENSE_MANAGED_ASYNC_DEFAULT', 0);
+define('ADSENSE_MANAGED_NUMBER_BLOCKS_DEFAULT', 3);
+define('ADSENSE_MANAGED_PAGE_LEVEL_ADS_ENABLED', 0);
+
+/**
+ * Implements hook_init().
+ */
+function adsense_managed_init() {
+  if (variable_get('adsense_managed_page_level_ads_enabled', ADSENSE_MANAGED_PAGE_LEVEL_ADS_ENABLED)) {
+    if (!_adsense_page_match()) {
+      $script = '<!-- adsense auto ads: page not in match list -->';
+    }
+    elseif (!_adsense_check_if_enabled()) {
+      $script = '<!-- adsense auto ads: ads disabled -->';
+    }
+    else {
+      $client = adsense_get_client_slot_id();
+      $script = <<<EOF
+<script async src="//pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+<script>
+  (adsbygoogle = window.adsbygoogle || []).push({
+    google_ad_client: "ca-$client",
+    enable_page_level_ads: true
+  });
+</script>
+EOF;
+    }
+    $ad = array(
+      '#type' => 'markup',
+      '#markup' => $script,
+      '#weight' => 100,
+    );
+    drupal_add_html_head($ad, 'adsense_managed_page_level_ad_script');
+  }
+}
+
+/**
+ * Implements hook_menu().
+ */
+function adsense_managed_menu() {
+  $items = array();
+
+  $items['admin/config/services/adsense/managed'] = array(
+    'title' => 'Managed Ads',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('adsense_managed_settings'),
+    'access arguments'  => array('administer adsense'),
+    'weight' => 1,
+    'type' => MENU_LOCAL_TASK,
+    'file' => 'adsense_managed.admin.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_theme_registry_alter().
+ */
+function adsense_managed_theme_registry_alter(&$theme_registry) {
+  $mod_path = drupal_get_path('module', 'adsense_managed');
+  // Munge on a copy.
+  $theme_registry_copy = $theme_registry;
+  _theme_process_registry($theme_registry_copy, 'phptemplate', 'theme_engine', 'pow', $mod_path);
+  $theme_registry += array_diff_key($theme_registry_copy, $theme_registry);
+}
+
+/**
+ * Implements hook_block_info().
+ */
+function adsense_managed_block_info() {
+  $blocks = array();
+  $max = variable_get('adsense_managed_number_blocks', ADSENSE_MANAGED_NUMBER_BLOCKS_DEFAULT);
+  for ($count = 0; $count < $max; $count++) {
+    if ($ad = _adsense_managed_get_block_config($count)) {
+      $title = $ad[0];
+    }
+    else {
+      $title = t('AdSense: unconfigured !d', array('!d' => $count + 1));
+    }
+    $blocks[$count] = array(
+      'info' => $title,
+      'cache' => DRUPAL_NO_CACHE,
+    );
+  }
+
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_configure().
+ */
+function adsense_managed_block_configure($delta = '') {
+  $ad = _adsense_managed_get_block_config($delta);
+  $ad_list = array();
+  foreach (adsense_ad_formats() as $format => $data) {
+    $ad_list[$format] = $format . ' : ' . $data['desc'];
+  }
+
+  $form['info'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Block description'),
+    '#default_value' => ($ad) ? $ad[0] : '',
+    '#maxlength' => 64,
+    '#description' => t('A brief description of your block. Used on the <a href="@overview">block overview page</a>.', array('@overview' => url('admin/structure/block'))),
+    '#required' => TRUE,
+    '#weight' => -19,
+  );
+
+  $form['ad_format'] = array(
+    '#type' => 'select',
+    '#title' => t('Ad format'),
+    '#default_value' => ($ad) ? $ad[1] : 'responsive',
+    '#options' => $ad_list,
+    '#description' => t('Select the ad dimensions you want for this block.'),
+    '#required' => TRUE,
+  );
+
+  $form['ad_width'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Width'),
+    '#default_value' => isset($ad[5]) ? $ad[5] : '',
+    '#description' => t('Custom ad width.'),
+    '#field_suffix' => ' ' . t('pixels'),
+    '#size' => 3,
+    '#maxlength' => 4,
+    '#states' => array(
+      'enabled' => array(
+        ':input[name="ad_format"]' => array('value' => 'custom'),
+      ),
+      'visible' => array(
+        ':input[name="ad_format"]' => array('value' => 'custom'),
+      ),
+      'required' => array(
+        ':input[name="ad_format"]' => array('value' => 'custom'),
+      ),
+    ),
+  );
+
+  $form['ad_height'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Height'),
+    '#default_value' => isset($ad[6]) ? $ad[6] : '',
+    '#description' => t('Custom ad height.'),
+    '#field_suffix' => ' ' . t('pixels'),
+    '#size' => 3,
+    '#maxlength' => 4,
+    '#states' => array(
+      'enabled' => array(
+        ':input[name="ad_format"]' => array('value' => 'custom'),
+      ),
+      'visible' => array(
+        ':input[name="ad_format"]' => array('value' => 'custom'),
+      ),
+      'required' => array(
+        ':input[name="ad_format"]' => array('value' => 'custom'),
+      ),
+    ),
+  );
+
+  $form['ad_slot'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Ad Slot ID'),
+    '#default_value' => ($ad) ? $ad[2] : '',
+    '#description' => t('This is the Ad Slot ID from your Google Adsense account, such as 0123456789.'),
+    '#required' => TRUE,
+  );
+
+  $form['ad_shape'] = array(
+    '#type' => 'select',
+    '#title' => t('Responsive ad shape'),
+    '#default_value' => isset($ad[4]) ? explode(',', $ad[4]) : 'auto',
+    '#multiple' => TRUE,
+    '#options' => array(
+      'auto' => t('Auto-sizing'),
+      'horizontal' => t('Horizontal'),
+      'vertical' => t('Vertical'),
+      'rectangle' => t('Rectangle'),
+    ),
+    '#description' => t("Shape of the responsive ad unit. Google's default is 'auto' for auto-sizing behaviour, but can also be a combination of one or more of the following: 'rectangle', 'vertical' or 'horizontal'."),
+    '#states' => array(
+      'enabled' => array(
+        ':input[name="ad_format"]' => array('value' => 'responsive'),
+      ),
+      'visible' => array(
+        ':input[name="ad_format"]' => array('value' => 'responsive'),
+      ),
+    ),
+  );
+
+  $form['ad_layout_key'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Layout key'),
+    '#default_value' => isset($ad[7]) ? $ad[7] : '',
+    '#description' => t("This is the data-ad-layout-key in the ad code from your Google Adsense account, such as '-gw-3+1f-3d+2z'."),
+    '#states' => array(
+      'enabled' => array(
+        ':input[name="ad_format"]' => array('value' => 'in-feed'),
+      ),
+      'visible' => array(
+        ':input[name="ad_format"]' => array('value' => 'in-feed'),
+      ),
+      'required' => array(
+        ':input[name="ad_format"]' => array('value' => 'in-feed'),
+      ),
+    ),
+  );
+
+  $form['ad_align'] = array(
+    '#type' => 'select',
+    '#title' => t('Ad alignment'),
+    '#default_value' => ($ad) ? $ad[3] : 'center',
+    '#options' => array(
+      '' => t('None'),
+      'left' => t('Left'),
+      'center' => t('Centered'),
+      'right' => t('Right'),
+    ),
+    '#description' => t('Select the horizontal alignment of the ad within the block.'),
+  );
+
+  return $form;
+}
+
+/**
+ * Implements hook_block_save().
+ */
+function adsense_managed_block_save($delta = '', $edit = array()) {
+  $data = implode(':', array(
+    urlencode(check_plain($edit['info'])),
+    check_plain($edit['ad_format']),
+    check_plain($edit['ad_slot']),
+    check_plain($edit['ad_align']),
+    check_plain(implode(',', $edit['ad_shape'])),
+    check_plain($edit['ad_width']),
+    check_plain($edit['ad_height']),
+    check_plain($edit['ad_layout_key']),
+  ));
+  variable_set('adsense_managed_ad_block_' . $delta, $data);
+}
+
+/**
+ * Implements hook_block_view().
+ */
+function adsense_managed_block_view($delta = '') {
+  $block = array();
+  if (_adsense_page_match()) {
+    $ad = _adsense_managed_get_block_config($delta);
+    $format = ($ad[1] == 'custom') ? ($ad[5] . 'x' . $ad[6]) : $ad[1];
+    $shape = isset($ad[4]) ? $ad[4] : 'auto';
+    $layout_key = isset($ad[7]) ? $ad[7] : '';
+    $block['content'] = ($ad) ? adsense_display(array('title' => $ad[0], 'format' => $format, 'slot' => $ad[2], 'shape' => $shape, 'layout_key' => $layout_key)) : _adsense_configure_block_message(url('admin/structure/block/manage/adsense_managed/' . $delta));
+    if (!empty($ad[3])) {
+      $block['content'] = "<div style='text-align:{$ad[3]}'>{$block['content']}</div>";
+    }
+  }
+
+  return $block;
+}
+
+/**
+ * Configuration of the provided block.
+ *
+ * @param int $delta
+ *   Block number.
+ *
+ * @return mixed
+ *   array with the block configuration or FALSE if no such block was found
+ */
+function _adsense_managed_get_block_config($delta = 0) {
+  if ($data = variable_get('adsense_managed_ad_block_' . $delta, ADSENSE_MANAGED_AD_BLOCK_DEFAULT)) {
+    $ad = explode(':', $data);
+    $ad[0] = urldecode($ad[0]);
+    return $ad;
+  }
+
+  return FALSE;
+}
+
+/**
+ * Generates the AdSense ad.
+ *
+ * @param string $format
+ *   Format of the ad.
+ * @param string $client
+ *   Publisher ID.
+ * @param string $slot
+ *   Slot Id for the AdSense ad.
+ * @param string $shape
+ *   Responsive ad shape.
+ * @param string $layout_key
+ *   In-feed layout key.
+ *
+ * @return string
+ *   JavaScript that embeds the Google AdSense ad
+ */
+function _adsense_managed_get_ad($format, $client, $slot, $shape = 'auto', $layout_key = '') {
+  $ad = _adsense_dimensions($format);
+
+  if (empty($slot) || (!_adsense_is_responsive($format) && !_adsense_is_fluid($format) && ($ad === NULL))) {
+    $output = "";
+  }
+  elseif (variable_get('adsense_test_mode', ADSENSE_TEST_MODE_DEFAULT)) {
+    $output = theme('adsense_placeholder', array(
+      'text' => "client = {$client}<br />slot = {$slot}<br />width = {$ad['width']}<br />height = {$ad['height']}<br />shape = {$shape}",
+      'width' => $ad['width'],
+      'height' => $ad['height'],
+    ));
+  }
+  else {
+    if (_adsense_is_responsive($format)) {
+      $shape = ($format == 'responsive') ? $shape : $format;
+
+      // Responsive smart sizing code.
+      $output = <<<MANAGED_RESP_TXT
+<script async src="//pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+<!-- $format -->
+<ins class="adsbygoogle"
+     style="display:block"
+     data-ad-client="ca-$client"
+     data-ad-slot="$slot"
+     data-ad-format="$shape"
+     data-full-width-responsive="true"></ins>
+<script>
+(adsbygoogle = window.adsbygoogle || []).push({});
+</script>
+MANAGED_RESP_TXT;
+    }
+    elseif (_adsense_is_fluid($format)) {
+      $style = 'display:block';
+      $layout = '';
+      if (empty($layout_key)) {
+        // In-article.
+        $layout = 'data-ad-layout="' . $format . '"';
+        $style .= '; text-align:center;';
+      }
+      else {
+        // In-feed.
+        $layout_key = 'data-ad-layout-key="' . $layout_key . '"';
+      }
+
+      // Responsive smart sizing code.
+      $output = <<<MANAGED_FLUID_TXT
+<script async src="//pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+<!-- $format -->
+<ins class="adsbygoogle"
+     style="$style"
+     $layout
+     data-ad-format="fluid"
+     $layout_key
+     data-ad-client="ca-$client"
+     data-ad-slot="$slot"></ins>
+<script>
+(adsbygoogle = window.adsbygoogle || []).push({});
+</script>
+MANAGED_FLUID_TXT;
+    }
+    elseif (variable_get('adsense_managed_async', ADSENSE_MANAGED_ASYNC_DEFAULT)) {
+      // Asynchronous code.
+      $output = <<<MANAGED_ASYNC_TXT
+<script async src="//pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+<!-- $format -->
+<ins class="adsbygoogle"
+     style="display:inline-block;width:{$ad['width']}px;height:{$ad['height']}px"
+     data-ad-client="ca-$client"
+     data-ad-slot="$slot"></ins>
+<script>
+(adsbygoogle = window.adsbygoogle || []).push({});
+</script>
+MANAGED_ASYNC_TXT;
+    }
+    else {
+      // Synchronous code.
+      $secret = '';
+      if ($lang = variable_get('adsense_secret_language', ADSENSE_SECRET_LANGUAGE_DEFAULT)) {
+        $secret = "google_language = '$lang';\n";
+      }
+
+      $output = <<<MANAGED_SYNC_TXT
+<script type="text/javascript"><!--
+google_ad_client = "ca-$client";
+/* $format */
+google_ad_slot = "$slot";
+google_ad_width = {$ad['width']};
+google_ad_height = {$ad['height']};
+$secret//-->
+</script>
+<script type="text/javascript"
+src="//pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+MANAGED_SYNC_TXT;
+    }
+  }
+
+  return $output;
+}

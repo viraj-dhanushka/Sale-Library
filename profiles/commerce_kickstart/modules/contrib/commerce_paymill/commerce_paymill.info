@@ -1,0 +1,15 @@
+name = Commerce Paymill
+description = Provides an interface for making payments via Paymill
+package = Commerce (contrib)
+dependencies[] = commerce
+dependencies[] = commerce_payment
+dependencies[] = libraries
+core = 7.x
+configure = admin/settings/commerce-paymill
+
+; Information added by Drupal.org packaging script on 2014-09-29
+version = "7.x-2.4"
+core = "7.x"
+project = "commerce_paymill"
+datestamp = "1411981758"
+

@@ -1,0 +1,41 @@
+<?php
+
+/**
+ * Implements hook_nodejs_handlers_info().
+ */
+function drupalchat_nodejs_nodejs_handlers_info() {
+  return array(
+    drupal_get_path('module', 'drupalchat_nodejs') . '/drupalchat_nodejs.js',
+  );
+}
+
+/**
+ * Implements hook_nodejs_user_channels().
+ */
+function drupalchat_nodejs_nodejs_user_channels($auth_user) {
+  global $user;
+  $channels = array();
+  if (user_access('access drupalchat')) {
+    $channels[] = 'drupalchat_' . $user->uid;
+  }
+  return $channels;
+}
+
+/**
+ * Implements hook_drupalchat_send().
+ */
+function drupalchat_nodejs_drupalchat_send($message) {
+  global $user;
+  $message->timestamp = date("H:i", $message->timestamp);
+  $message->name = $user->name;
+  $drupalchat_nodejs_message = (object) array(
+    'channel' => 'drupalchat_' . $message->uid2,
+    'broadcast' => FALSE,
+    'type' => 'newMessage',
+    'callback' => 'drupalchatNodejsMessageHandler',
+    'data' => drupal_json_encode($message),
+  );
+  nodejs_enqueue_message($drupalchat_nodejs_message);
+  nodejs_add_user_to_channel($user->uid, 'drupalchat_' . $user->uid);
+}
+

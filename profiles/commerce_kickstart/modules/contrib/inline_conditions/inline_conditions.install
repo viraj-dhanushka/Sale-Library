@@ -1,0 +1,30 @@
+<?php
+/**
+ * @file
+ * Installation functions for inline_conditions module.
+ */
+
+/**
+ * Implements hook_field_schema().
+ */
+function inline_conditions_field_schema($field) {
+  if ($field['type'] == 'inline_conditions') {
+    return array(
+      'columns' => array(
+        'condition_name'     => array(
+          'type'        => 'varchar',
+          'length'      => 255,
+          'not null'    => TRUE,
+          'description' => t('Name of the condition, as defined in hook_inline_condition_info().'),
+        ),
+        'condition_settings' => array(
+          'type'        => 'blob',
+          'size'        => 'big',
+          'not null'    => FALSE,
+          'serialize'   => TRUE,
+          'description' => t('Settings for the condition, serialized.'),
+        ),
+      ),
+    );
+  }
+}

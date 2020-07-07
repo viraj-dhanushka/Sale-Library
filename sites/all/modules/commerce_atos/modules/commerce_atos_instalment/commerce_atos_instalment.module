@@ -1,0 +1,364 @@
+<?php
+
+/**
+ * @file
+ * Implements ATOS/SIPS instalments for use with Drupal Commerce.
+ */
+
+/**
+ * Implements hook_commerce_payment_method_info().
+ */
+function commerce_atos_instalment_commerce_payment_method_info() {
+  $payment_methods = array();
+  $payment_methods['atos_instalment'] = array(
+    'title' => t('ATOS SIPS instalments payment solution'),
+    'display_title' => t('Pay in instalments'),
+    'base' => 'commerce_atos_instalment',
+    'description' => t('ATOS SIPS instalments solution'),
+    'offsite' => TRUE,
+    'offsite_autoredirect' => TRUE,
+    'terminal' => FALSE,
+    'active' => FALSE,
+  );
+  return $payment_methods;
+}
+
+/**
+ * Payment method callback: settings form.
+ */
+function commerce_atos_instalment_settings_form($settings) {
+  // Merge default settings into the stored settings array.
+  $settings = (array) $settings + commerce_atos_default_settings();
+  $settings += array(
+    'instalment_number' => 3,
+    'instalment_period' => 90,
+  );
+  // Gets the default settings form.
+  $form = commerce_atos_settings_form($settings);
+  // Defines the time period (in days) during which the merchant can creates
+  // instalments for an order.
+  $form['instalment_period'] = array(
+    '#type' => 'select',
+    '#title' => t('Instalment period'),
+    '#description' => t('Maximum number of days to plan instalments. Must be less than 90 days.'),
+    '#options' => drupal_map_assoc(range(3, 90)),
+    '#default_value' => $settings['instalment_period'],
+    '#required' => TRUE,
+    '#weight' => 2,
+    '#element_validate' => array('commerce_atos_instalment_settings_form_instalment_period'),
+  );
+  // Defines the allowed number of instalments.
+  $form['instalment_number'] = array(
+    '#type' => 'select',
+    '#title' => t('Instalment number'),
+    '#description' => t('Number of instalment allowed for an order. Must be between 2 and 50.'),
+    '#options' => drupal_map_assoc(range(2, 50)),
+    '#default_value' => $settings['instalment_number'],
+    '#required' => TRUE,
+    '#weight' => 4,
+    '#element_validate' => array('commerce_atos_instalment_settings_form_instalment_number'),
+  );
+
+  return $form;
+}
+
+/**
+ * Element validate callback.
+ *
+ * Checks if the entered values is valid and less than 90 days.
+ */
+function commerce_atos_instalment_settings_form_instalment_period($element, &$form_state) {
+  if ((int) $element['#value'] > 90) {
+    form_error($element, t('You must provide a number less than or equal to 90 days.'));
+  }
+}
+
+/**
+ * Element validate callback.
+ *
+ * Checks if the entered values is valid and between 2 and 50.
+ */
+function commerce_atos_instalment_settings_form_instalment_number($element, &$form_state) {
+  $instalment_number = (int) $element['#value'];
+  if ($instalment_number < 2 || $instalment_number > 50) {
+    form_error($element, t('You must provide a number between 2 and 50.'));
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ *
+ * Adds the list of credit cards allowed for the payment method.
+ */
+function commerce_atos_instalment_form_commerce_checkout_form_alter(&$form, &$form_state) {
+  // If this checkout form contains the payment method radios...
+  if (!empty($form['commerce_payment']['payment_method']['#options'])) {
+    // Loop over its options array looking for an atos_instalment option.
+    foreach ($form['commerce_payment']['payment_method']['#options'] as $key => &$value) {
+      list($method_id) = explode('|', $key);
+      // If we find atos_instalment...
+      if ($method_id == 'atos_instalment') {
+        // Add the payment credit cards logos.
+        if (isset($form['commerce_payment']['payment_methods']['#value'][$key]['settings'])
+          && isset($form['commerce_payment']['payment_methods']['#value'][$key]['settings']['card_types'])) {
+          $card_types = ($form['commerce_payment']['payment_methods']['#value'][$key]['settings']['card_types']);
+          $value .= theme('commerce_atos_credit_cards_logos', array('credit_cards' => $card_types));
+          $value .= t('You can pay in @count instalments', array('@count' => $form['commerce_payment']['payment_methods']['#value'][$key]['settings']['instalment_number']));
+        }
+        break;
+      }
+    }
+  }
+}
+
+/**
+ * Payment method callback: submit form validation.
+ */
+function commerce_atos_instalment_submit_form_validate($payment_method, $pane_form, $pane_values, $order, $form_parents) {
+  // Return an error if the payment method hasn't been configured before using
+  // it.
+  foreach (array('merchant_id', 'secret_key', 'key_version', 'server_url', 'instalment_period', 'instalment_number') as $key) {
+    if (!isset($payment_method['settings'][$key])) {
+      drupal_set_message(t('ATOS SIPS is not configured for use. Please contact an administrator to resolve this issue.'), 'error');
+      return FALSE;
+    }
+  }
+}
+
+/**
+ * Payment method callback: redirect form.
+ */
+function commerce_atos_instalment_redirect_form($form, &$form_state, $order, $payment_method) {
+  // Gets data to send to ATOS.
+  $data = commerce_atos_instalment_payment_request($order, $payment_method);
+  // Gets the default redirect form.
+  return commerce_atos_redirect_form($form, $form_state, $order, $payment_method, $data);
+}
+
+/**
+ * Generates a string of key and param to create a payment request.
+ *
+ * @param object $order
+ *   The order the payment is for.
+ * @param array $payment_method
+ *   The payment method instance array associated with this API request.
+ *
+ * @return string
+ *   Return a string of key=value param.
+ */
+function commerce_atos_instalment_payment_request($order, $payment_method) {
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+  // Get the amount of the transaction.
+  $order_total = $order_wrapper->commerce_order_total->value();
+  $amount = commerce_atos_price_amount($order_total['amount'], $order_total['currency_code']);
+
+  $instalment_number = $payment_method['settings']['instalment_number'];
+  $instalment_period = $payment_method['settings']['instalment_period'];
+
+  // Try to find if a transaction has already been saved for this order and
+  // this payment method.
+  $transactions = commerce_payment_transaction_load_multiple(array(), array('instance_id' => $payment_method['instance_id'], 'status' => COMMERCE_PAYMENT_STATUS_PENDING, 'order_id' => $order->order_id));
+  if (!$transactions) {
+    $date = REQUEST_TIME;
+    // Create a new transaction in a pending state to have a transaction id.
+    for ($i = 0; $i < (int) $instalment_number; $i++) {
+      $transaction = commerce_payment_transaction_new($payment_method['method_id'], $order->order_id);
+      $transaction->status = COMMERCE_PAYMENT_STATUS_PENDING;
+      $transaction->instance_id = $payment_method['instance_id'];
+      $transaction->currency_code = $order_total['currency_code'];
+
+      // Get the amount for the next payment.
+      $transaction->amount = ($i == 0)
+        // Adds the amount modulo to the first transaction.
+        ? (int) ($amount / $instalment_number) + ($amount % $instalment_number)
+        : (int) ($amount / $instalment_number);
+
+      // Get the number of days before the next payment.
+      $days = ($i == ($instalment_number - 1))
+        ? $instalment_period
+        : ((int)($instalment_period / ($instalment_number - 1)) * $i);
+      $transaction->created = strtotime("+$days days", REQUEST_TIME);
+      commerce_payment_transaction_save($transaction);
+      $transactions[] = $transaction;
+    }
+  }
+
+  $instalmentData = array();
+  foreach ($transactions as $transaction) {
+    $instalmentData['datesList'][] = date('Ymd', $transaction->created);
+    $instalmentData['amountsList'][] = $transaction->amount;
+    $instalmentData['transactionReferencesList'][] = commerce_atos_generate_transaction_reference($transaction->transaction_id);
+  }
+
+  // Generate data to send to ATOS.
+  $data = array(
+    // Get the first transaction reference id.
+    'transactionReference' => reset($instalmentData['transactionReferencesList']),
+    'amount' => commerce_atos_price_amount($order_total['amount'], $order_total['currency_code']),
+    'currencyCode' => commerce_atos_get_currency_code($order_total['currency_code']),
+    'paymentPattern' => 'INSTALMENT',
+    'instalmentData.number' => $payment_method['settings']['instalment_number'],
+    'instalmentData.datesList' => implode(',', $instalmentData['datesList']),
+    'instalmentData.transactionReferencesList' => implode(',', $instalmentData['transactionReferencesList']),
+    'instalmentData.amountsList' => implode(',', $instalmentData['amountsList']),
+  );
+
+  // Add the default payment data to the request.
+  $request = commerce_atos_payment_request($order, $payment_method, $data);
+
+  if ($payment_method['settings']['log']['request']) {
+    watchdog('commerce_atos_instalment', 'Request processed for order: @order_number - transaction: @transaction_number with the following data: <pre>@data</pre>', array('@order_number' => $order->order_number, '@transaction_number' => $transaction->transaction_id, '@data' => print_r($data, TRUE)), WATCHDOG_INFO);
+  }
+
+  return $request;
+}
+
+/**
+ * Payment method callback: redirect form return validation.
+ */
+function commerce_atos_instalment_redirect_form_validate($order, $payment_method) {
+  if (!isset($_POST) || !isset($_POST['Data'])) {
+    watchdog('commerce_atos_payment', 'Customer request accessed with no POST data submitted.', array(), WATCHDOG_WARNING);
+    return FALSE;
+  }
+  // Checks the received request to determine its validity.
+  if (!isset($_POST['Seal']) || commerce_atos_generate_data_seal($_POST['Data'], $payment_method) !== $_POST['Seal']) {
+    watchdog('commerce_atos_payment', 'The request can not be processed because it contained an invalid hash.', array(), WATCHDOG_WARNING);
+    return FALSE;
+  }
+  // Extracts the response form the received data.
+  $response = commerce_atos_parse_response($_POST['Data']);
+  if ($response && commerce_atos_instalment_process_transaction($response)) {
+    return TRUE;
+  }
+  return FALSE;
+}
+
+/**
+ * Payment method callback: redirect form return submission.
+ */
+function commerce_atos_instalment_redirect_form_submit($order, $payment_method) {
+  // Because we need to be able to halt checkout completion if payment fails for
+  // some reason, instead of getting and processing payment in the submission
+  // step, we do this in the validate step above.
+}
+
+/**
+ * Payment method callback: redirect form return back.
+ *
+ * Marks the transactions as failed if the customer choose to cancel the
+ * payment.
+ *
+ * @param object $order
+ *   The order the payment is for.
+ * @param array $payment_method
+ *   The payment method instance array associated with this API request.
+ */
+function commerce_atos_instalment_redirect_form_back($order, $payment_method) {
+  // Try to find if a transaction has already been saved for this order and
+  // this payment method.
+  $transactions = commerce_payment_transaction_load_multiple(array(), array('instance_id' => $payment_method['instance_id'], 'status' => COMMERCE_PAYMENT_STATUS_PENDING, 'order_id' => $order->order_id));
+  if ($transactions) {
+    // Marks the transactions as Failed.
+    foreach ($transactions as $transaction) {
+      $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
+      $transaction->message = t("Cancellation of payment by the end user");
+      commerce_payment_transaction_save($transaction);
+    }
+  }
+}
+
+/**
+ * Saves an instalment transaction received from ATOS payment server.
+ *
+ * @param array $response
+ *   An array of data received form ATOS.
+ *
+ * @return bool
+ *   Return a boolean indicating whether or not the transaction notification
+ *   succeeds.
+ */
+function commerce_atos_instalment_process_transaction($response) {
+  if ($response === FALSE || empty($response['responseCode'])) {
+    watchdog('commerce_atos_instalment', 'Transaction failed returned from ATOS SIPS with the following POST data: <pre>@data</pre>', array('@data' => print_r($response, TRUE)), WATCHDOG_WARNING);
+    return FALSE;
+  }
+  // Ensure we can load the existing corresponding order.
+  if (!$response['orderId'] || !$order = commerce_order_load($response['orderId'])) {
+    watchdog('commerce_atos_instalment', 'Response rejected: invalid order identifier specified for order @order_number', array('@order_number' => $response['orderId']), WATCHDOG_WARNING);
+    return FALSE;
+  }
+
+  // Redirect the customer if he choice to cancel the payment on ATOS website.
+  if ($response['responseCode'] == '17') {
+    commerce_atos_payment_cancel($order);
+  }
+
+  // Ensure we can load the existing corresponding transaction.
+  if (!$response['transactionReference']) {
+    watchdog('commerce_atos_instalment', 'Response rejected: no transaction identifier specified for transaction @order_number', array('@order_number' => $response['orderId']), WATCHDOG_WARNING);
+    return FALSE;
+  }
+  else {
+    // Extract the transaction_id from the generated transactionReference.
+    list($transaction_id) = explode('T', $response['transactionReference']);
+    if (!$transaction_id || !$transaction = commerce_payment_transaction_load($transaction_id)) {
+      watchdog('commerce_atos_instalment', 'Response rejected: invalid transaction identifier specified for transaction @transaction_number', array('@transaction_number' => $response['transactionReference']), WATCHDOG_WARNING);
+      return FALSE;
+    }
+  }
+
+  // Load the payment method.
+  $payment_method = commerce_payment_method_instance_load($transaction->instance_id);
+
+  if (!$payment_method) {
+    watchdog('commerce_atos_instalment', 'Response rejected: unable to load the payment method for the @payment_method instance id', array('@payment_method' => $transaction->instance_id, WATCHDOG_WARNING));
+    return FALSE;
+  }
+
+  $transaction->remote_id = $response['transactionReference'];
+  $transaction->remote_status = $response['responseCode'];
+  $transaction->payload[REQUEST_TIME] = $response;
+  $transaction->currency_code = commerce_atos_get_currency_code($response['currencyCode'], TRUE);
+
+  $status = FALSE;
+  // Saves the first transaction of the instalment as "Success" or "Pending"
+  // and lets the others as Pending.
+  if ($response['responseCode'] == 0) {
+    $status = TRUE;
+    switch ($response['captureMode']) {
+      case 'VALIDATION':
+        $transaction->status = COMMERCE_PAYMENT_STATUS_PENDING;
+        $transaction->message = t("@description <br/> The amount will be captured in @days", array('@description' => commerce_atos_response_code($response['responseCode']), '@days' => format_plural($response['captureDay'], '1 day', '@count days')));
+        break;
+
+      case 'AUTHOR_CAPTURE';
+        $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
+        $transaction->message = t("@description", array('@description' => commerce_atos_response_code($response['responseCode'])));
+        break;
+    }
+    // Save the transaction.
+    commerce_payment_transaction_save($transaction);
+  }
+  // Saves ALL the instalment transactions as "Failure".
+  else {
+    $transactions = commerce_payment_transaction_load_multiple(array(), array('instance_id' => $payment_method['instance_id'], 'status' => COMMERCE_PAYMENT_STATUS_PENDING, 'order_id' => $order->order_id));
+    if ($transactions) {
+      // Marks the transactions as Failed.
+      foreach ($transactions as $other_transaction) {
+        $other_transaction->payload[REQUEST_TIME] = $response;
+        $other_transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
+        $other_transaction->remote_status = $response['responseCode'];
+        $other_transaction->message = t("@description", array('@description' => commerce_atos_response_code($response['responseCode'])));
+        // Save the transaction.
+        commerce_payment_transaction_save($other_transaction);
+      }
+    }
+  }
+
+  if ($payment_method['settings']['log']['response']) {
+    watchdog('commerce_atos', 'Response processed for order: @order_number - transaction: @transaction_number with the following POST data: <pre>@data</pre>', array('@order_number' => $order->order_number, '@transaction_number' => $transaction->transaction_id, '@data' => print_r($response, TRUE)), WATCHDOG_INFO);
+  }
+
+  return ($status) ? TRUE : FALSE;
+}

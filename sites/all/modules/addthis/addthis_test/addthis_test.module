@@ -1,0 +1,35 @@
+<?php
+/**
+ * Implements hook_page_build().
+ */
+function addthis_test_page_build(&$page) {
+
+  // See AddThisTestHelper.php.page.inc for more info.
+  if (current_path() == 'addthis/test/2') {
+    $manager = AddThisScriptManager::getInstance();
+    $manager->attachJsToElement($page['content']);
+  }
+}
+
+/**
+ * Implements hook_menu().
+ */
+function addthis_test_menu() {
+  // Test pages.
+  // Pages used in the test cases.
+  $menu_items['addthis/test/1'] = array(
+    'title' => 'Test no Javascript load',
+    'type' => MENU_CALLBACK,
+    'page callback' => 'addthis_test_no_js',
+    'access arguments' => array(AddThis::PERMISSION_ADMINISTER_ADDTHIS),
+    'file' => 'includes/addthis.test_pages.inc'
+  );
+  $menu_items['addthis/test/2'] = array(
+    'title' => 'Test Javascript load on preprocess',
+    'type' => MENU_CALLBACK,
+    'page callback' => 'addthis_test_with_js',
+    'access arguments' => array(AddThis::PERMISSION_ADMINISTER_ADDTHIS),
+    'file' => 'includes/addthis.test_pages.inc'
+  );
+  return $menu_items;
+}

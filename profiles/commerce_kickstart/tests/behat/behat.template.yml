@@ -1,0 +1,10 @@
+imports:
+    - behat.common.yml
+
+default:
+  extensions:
+    Behat\MinkExtension:
+      base_url: http://${drupal.uri}
+    Drupal\DrupalExtension:
+      drush:
+        root: ${drush.root}

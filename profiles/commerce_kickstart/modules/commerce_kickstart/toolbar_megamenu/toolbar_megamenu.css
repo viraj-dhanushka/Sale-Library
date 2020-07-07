@@ -1,0 +1,110 @@
+
+#toolbar {
+  filter: none !important;
+  background: #000;
+  padding: 0;
+}
+
+#toolbar div.toolbar-menu {
+  margin: 0 auto;
+  height: 25px;
+  padding: 3px 0 0;
+  width: 90%;
+}
+#toolbar .wrapper-depth-2,
+#toolbar-home,
+#toolbar-user {
+  padding-top: 2px;
+  top: 0;
+}
+#toolbar-home {
+  width: 30px;
+}
+#toolbar-user {
+  width: 20%;
+  left: auto; /* LTR */
+  right: 0; /* LTR */
+}
+#toolbar .wrapper-depth-2{
+  width: 80%;
+  padding-top: 2px;
+  left: 30px; /* LTR */
+}
+#toolbar ul.menu-depth-2 {
+  display: inline-block;
+  float: left; /* LTR */
+}
+#toolbar li.depth-2 {
+  position: relative;
+  height: 30px;
+  margin-bottom: 0;
+  padding: 0 5px;
+}
+#toolbar .wrapper-depth-3 {
+  margin: -10px 0 0;
+  position: absolute;
+  text-align: left; /* LTR */
+  padding: 10px 5px 10px 5px;
+  width: 200px;
+  background: #000;
+  top: -999px;
+  left: 0; /* LTR */
+  display: inline-block;
+  z-index: -1;
+
+  /* Transition for browsers that support it. */
+  -webkit-transition: .5s all;
+  -webkit-transition-delay: .25s;
+  -moz-transition: .5s all;
+  -moz-transition-delay: .25s;
+  -ms-transition: .5s all;
+  -ms-transition-delay: .25s;
+  -o-transition: .5s all;
+  -o-transition-delay: .25s;
+  transition: .5s all;
+  transition-delay: .25s;
+}
+#toolbar li.depth-2:hover .wrapper-depth-3,
+#toolbar li.depth-2 .wrapper-depth-3:hover {
+  top: 100%;
+
+  /* Transition for browsers that support it. */
+  -webkit-transition-delay: 0s;
+  -ms-transition-delay: 0s;
+  transition-delay: 0s;
+  -moz-transition-delay: 0s;
+  -webkit-transition: 0.5s;
+  -ms-transition: 0.5s;
+  transition: 0.5s;
+  -moz-transition: 0.5s;
+}
+#toolbar ul.menu-depth-3 {
+  background: transparent;
+  position: relative;
+  padding-bottom: 10px;
+  width: 100%;
+  float: left; /* LTR */
+  clear: left; /* LTR */
+}
+#toolbar ul.menu-depth-3,
+#toolbar ul.menu-depth-4,
+#toolbar ul.menu-depth-3 li.depth-3,
+#toolbar ul.menu-depth-4 li.depth-4 {
+  float: none;
+  clear: both;
+}
+#toolbar .wrapper-depth-3 a,
+#toolbar .wrapper-depth-4 a {
+  float: none;
+  clear: left; /* LTR */
+  display: inline-block;
+}
+#toolbar .wrapper-depth-4 {
+  padding-left: 10px; /* LTR */
+}
+#toolbar .wrapper-depth-3 li.depth-3,
+#toolbar .wrapper-depth-4 li.depth-4,
+#toolbar .expanded,
+#toolbar .collapsed {
+  list-style: none !important;
+}

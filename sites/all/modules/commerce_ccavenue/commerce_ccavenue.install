@@ -1,0 +1,23 @@
+<?php
+
+
+/**
+ * Implements hook_requirements().
+ *
+ * - Checks the mcrypt extension is installed on server.
+ * 
+ */
+function commerce_ccavenue_requirements($phase) {
+  $requirements = array();
+
+  if ($phase == 'install') {
+    if (!extension_loaded('mcrypt')) {
+      $requirements['mcrypt'] = [
+        'description' => t('Commerce CCAvenue requires mcrypt extension. Make sure the extension is installed on server.'),
+        'severity' => REQUIREMENT_ERROR,
+      ];
+    }
+  }
+
+  return $requirements;
+}

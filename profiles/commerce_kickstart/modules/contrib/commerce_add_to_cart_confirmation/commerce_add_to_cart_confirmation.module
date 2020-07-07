@@ -1,0 +1,81 @@
+<?php
+
+/**
+ * @file
+ * Provides an "add to cart" confirmation dialog, shown after the customer has
+ * added a product his cart.
+ */
+
+/**
+ * Implements hook_views_api().
+ */
+function commerce_add_to_cart_confirmation_views_api() {
+  return array('api' => 3);
+}
+
+/**
+ * Implements hook_entity_info_alter().
+ *
+ * Create new view mode for product display, commerce product.
+ */
+function commerce_add_to_cart_confirmation_entity_info_alter(&$entity_info) {
+  $entity_info['commerce_product']['view modes']['add_to_cart_confirmation_view'] = array(
+    'label' => t('Add to cart confirmation view'),
+    'custom settings' => TRUE,
+  );
+}
+
+/**
+ * Implements hook_theme().
+ */
+function commerce_add_to_cart_confirmation_theme($existing, $type, $theme, $path) {
+  return array(
+    'commerce_add_to_cart_confirmation_message' => array(
+      'variables' => array(
+        'view' => '',
+      ),
+    ),
+  );
+}
+
+/**
+ * Return an array of settings to place in the JavaScript Drupal settings array
+ * when the Add to Cart Confirmation message is rendered.
+ */
+function commerce_add_to_cart_confirmation_js_settings() {
+  $settings = array(
+    'commerceAddToCartConfirmation' => array(
+      'overlayClass' => 'commerce_add_to_cart_confirmation_overlay',
+      'overlayParentSelector' => 'body',
+    ),
+  );
+
+  drupal_alter('commerce_add_to_cart_confirmation_js_settings', $settings);
+
+  return $settings;
+}
+
+/**
+ * Implements hook_js_alter().
+ *
+ * Adds settings to the Drupal.settings object needed by this module's JS.
+ */
+function commerce_add_to_cart_confirmation_js_alter(&$javascript) {
+  $javascript['settings']['data'][] = commerce_add_to_cart_confirmation_js_settings();
+}
+
+/**
+ * Theme function to render the confirmation message.
+ */
+function theme_commerce_add_to_cart_confirmation_message($variables) {
+  // Build the message output.
+  // @todo Switch this to use a template.
+  $message = '<div class="added-product-title clearfix">' . t('Item successfully added to your cart') . '</div>';
+  $message .= $variables['view'];
+  $message .= '<div class="button-wrapper">';
+  $message .= '<div class="button checkout">' . l(t('Go to cart'), 'cart') . '</div>';
+  $message .= '<div class="button continue"><a href="#" class="commerce-add-to-cart-confirmation-close"><span>' . t('Continue shopping') . '</span></a></div>';
+  $message .= '</div>';
+
+  return '<div class="message-inner">' . $message . '<a class="commerce-add-to-cart-confirmation-close" href="#"><span class="element-invisible">' . t('Close') . '</span></a><div class="clearfix"></div></div>';
+}

@@ -1,0 +1,67 @@
+<?php
+
+/**
+ * @file
+ * Install file of the adsense module.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function adsense_install() {
+  $t = get_t();
+  drupal_set_message($t("AdSense settings are available under !link", array(
+    '!link' => l($t('Administration') . ' > ' . $t('Configuration') . ' > ' . $t('Web services') . ' > ' . $t('AdSense'), 'admin/config/services/adsense'),
+  )));
+}
+
+/**
+ * Implements hook_requirements().
+ */
+function adsense_requirements($phase) {
+  $requirements = array();
+  $t = get_t();
+  switch ($phase) {
+    // At runtime, make sure that we have a publisher ID.
+    case 'runtime':
+      $basic_id = variable_get('adsense_basic_id', ADSENSE_BASIC_ID_DEFAULT);
+      if (empty($basic_id)) {
+        $requirements['adsense_basic_id'] = array(
+          'title' => $t('AdSense'),
+          'value' => $t('Publisher ID is not set.'),
+          'description' => $t('Please configure it in the <a href="@url">AdSense Publisher ID settings page</a>.', array('@url' => url('admin/config/services/adsense/publisher'))),
+          'severity' => REQUIREMENT_ERROR,
+        );
+      }
+      break;
+  }
+  return $requirements;
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function adsense_uninstall() {
+  variable_del('adsense_access_pages');
+  variable_del('adsense_basic_id');
+  variable_del('adsense_disable');
+  variable_del('adsense_id_module');
+  variable_del('adsense_placeholder');
+  variable_del('adsense_placeholder_text');
+  variable_del('adsense_secret_language');
+  variable_del('adsense_test_mode');
+  variable_del('adsense_unblock_ads');
+  variable_del('adsense_visibility');
+
+  $settings = db_query("SELECT name FROM {variable} WHERE name LIKE 'adsense\_ad\_channel\_%'");
+  foreach ($settings as $variable) {
+    variable_del($variable->name);
+  }
+}
+
+/**
+ * Delete obsolete variable.
+ */
+function adsense_update_7100(&$sandbox) {
+  variable_del('adsense_section_targeting');
+}

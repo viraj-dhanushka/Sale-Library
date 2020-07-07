@@ -1,0 +1,13 @@
+name = CSE Search
+description = AdSense for Search generator module. This module uses the new Custom Search Engine code created via the Adsense interface.
+dependencies[] = adsense:adsense
+package = AdSense
+core = 7.x
+
+configure = admin/config/services/adsense/cse
+
+; Information added by Drupal.org packaging script on 2019-04-30
+version = "7.x-1.13"
+core = "7.x"
+project = "adsense"
+datestamp = "1556634017"

@@ -1,0 +1,15 @@
+<?php
+
+/**
+ * @file propellerads.install
+ * Contains uninstall routines.
+ */
+
+/**
+ * Implements hook_uninstall().
+ */
+function propellerads_uninstall() {
+  variable_del('propellerads_verification_code');
+  variable_del('propellerads_channel_id');
+}
+

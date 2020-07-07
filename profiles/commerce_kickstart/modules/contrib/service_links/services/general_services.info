@@ -1,0 +1,10 @@
+name = General Services
+description = Blinklist, Box, del.icio.us, Digg, Diigo, Facebook, Furl, Google Bookmark, Google Plus, Icerocket, Identi.ca, Linkedin, Mister Wong, Mixx, MySpace, Newsvine, Newskicks, Phing this, Reddit, StumbleUpon, Technorati, Twitter, Viadeo, Yahoo
+core = 7.x
+package = Service Links - Services
+dependencies[] = service_links
+
+; Information added by drush on 2014-07-03
+version = "7.x-2.3+0-dev"
+project = "service_links"
+datestamp = "1404397265"

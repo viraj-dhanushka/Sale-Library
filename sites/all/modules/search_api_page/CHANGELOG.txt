@@ -1,0 +1,103 @@
+Search API Pages 1.5 (2018-09-17):
+----------------------------------
+- #2995320 by drunken monkey: Added a length limit for keywords.
+- #2981286 by osopolar, drunken monkey: Fixed search keys disappearing from
+  search box when using Panels.
+- #2912002 by drunken monkey, Rob C: Added per-page variations for the "full
+  page" template.
+- #2900795 by drunken monkey: Fixed duplicated H1 page titles.
+
+Search API Pages 1.4 (2017-07-18):
+----------------------------------
+- #2827641 by drunken monkey: Fixed display of "No results" message when first
+  viewing page.
+- #2826530 by tannguyenhn, drunken monkey: Fixed problem with CTools search
+  result plugin.
+- #2768763 by seworthi, drunken monkey: Fixed fatal error when page handler is
+  called with illegal argument.
+
+Search API Pages 1.3 (2016-07-05):
+----------------------------------
+- #2755599 by Bès: Fixed template suggestion for search pages.
+- #2728487 by gnucifer: Fixed rendering code to fix item load if items are
+  already present.
+- #2711499 by drunken monkey, gnucifer: Fixed page manager integration for
+  non-standard datasources.
+- #1847686 by MiSc, Bès, jsst, drunken monkey, jossensei: Added a theme
+  template for the whole search page.
+- #2699913 by dsdeiz, drunken monkey: Fixed Page Manager integration.
+- #1664706 by Les Lim, drunken monkey: Added static caching to hook_forms()
+  implementation.
+- #1377292 by drunken monkey: Fixed search form block for anonymous users.
+- #2592143 by drunken monkey: Improved template documentation to state title is
+  unsanitized.
+- #2498525 by drunken monkey, GDrupal: Fixed warnings for empty results.
+- #2528592 by marcingy: Fixed old search page titles being displayed until
+  manual menu rebuild.
+- #2315713 by pontus_nilsson, DamienMcKenna, drunken monkey, kallehauge: Added
+  Panels support for search pages.
+
+Search API Pages 1.2 (2015-06-03):
+----------------------------------
+- #2425179 by DamienMcKenna, drunken monkey: Added a CTools plugin for the
+  search box.
+- #2392289 by AndrewsizZ: Fixed error when there are no results to display.
+- #2358735 by drunken monkey: Added access check when viewing the search block.
+- #2345601 by sjancich: Fixed search block caching.
+- #2334647 by jseffel: Fixed rendering of unknown items.
+- #2244981 by drunken monkey: Fixed theming code to not try to load results if
+  there are none.
+- #1368152 by rooby, mparker17, acrazyanimal, jagermonster, ohthehugemanatee,
+  drunken monkey, milesw, Roderik de Langen: Added an option to allow search
+  pages to support facet-only searching.
+
+Search API Pages 1.1 (2014-05-24):
+----------------------------------
+- #2259109 by DamienMcKenna, drunken monkey: Added a "placeholder" attribute
+  for the search block.
+- #1371482 by rooby, DamienMcKenna: Added per-page permissions.
+- #2189633 by acrazyanimal: Added the search page ID to the query options.
+- #2179399 by mparker17, drunken monkey: Fixed recognition of non-standard
+  entity indexes.
+- #2134731 by drunken monkey: Fixed notices when trying to display the block of
+  a disabled search page.
+
+Search API Pages 1.0 (2013-09-01):
+----------------------------------
+- #2071093 by drunken monkey, quiptime: Fixed logic error in template code.
+- #1442686 by drunken monkey: Documented pager issues.
+
+Search API Pages 1.0, RC 1 (2013-07-10):
+----------------------------------------
+- #1313676 by tomogden, drunken monkey, aaronbauman, guillaumev: Added
+  templates.
+- #2012712 by drunken monkey: Fixed $reset parameter for load functions.
+- #1999102 by drunken monkey: Added contextual links to blocks and pages.
+- #1999106 by drunken monkey: Minor code cleanup.
+- #1993482 by drunken monkey: Fixed overlong block deltas.
+- #1993208 by drunken monkey: Fixed handling of slashes in keywords.
+- #1993952 by drunken monkey: Added language filter option.
+- #1424086 by jasperknops, drunken monkey, aaronbauman: Fixed search form on 404
+  pages.
+- #1512086 by wbressers, drunken monkey: Added option to hide the form on the
+  results page.
+- #1377292 by elliotttf, weri: Fixed search form block for anonymous users.
+- #1411852 by amateescu: Fixed wrong view mode for search pages of non-entities.
+- #1662794 by tomogden: Miscellaneous code cleanup.
+- #1617982 by drunken monkey: Fixed uncaught exceptions when executing search.
+- #1637590 by drunken monkey, elliotttf: Fixed ommission of text format when
+  creating result summaries.
+- #1642274 by welshtzigane: Fixed deleting an index does not remove a disabled
+  search page.
+- #1569608 by Everett Zufelt: Fixed accessibility of search block.
+
+Search API Pages 1.0, Beta 2 (2011-11-10):
+------------------------------------------
+- #1285116 by tomogden, drunken monkey: Added further flexibility for paging.
+- #1330424 by drunken monkey: Adapted to new structure of index fields settings.
+- #1125930 by Ivan Zugec, drunken monkey: Added exporting support for search
+  pages.
+
+Search API Pages 1.0, Beta 1 (2011-09-06):
+------------------------------------------
+First beta release of the Search API Pages project.

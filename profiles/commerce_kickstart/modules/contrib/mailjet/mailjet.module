@@ -1,0 +1,1142 @@
+<?php
+
+/**
+ * @file
+ * Hooks and functions of module.
+ */
+/**
+ * Implements hook_help().
+ */
+
+$path = drupal_get_path('module', 'mailjet');
+
+// Autoloading via composer
+require_once $path . '/vendor/autoload.php';
+
+
+use Mailjet\Resources;
+use MailjetTools\MailjetApi;
+
+
+define("IFRAME_URL", "https://app.mailjet.com/");
+
+function mailjet_help($path, $arg) {
+  switch ($path) {
+    case 'admin/help#mailjet' :
+      return t('Send your emails by your Mailjet API.');
+  }
+}
+
+
+/**
+ * Implements hook_menu().
+ */
+function mailjet_menu() {
+  //echo '<br/>';
+  //echo '<pre>';print_r(mailjet_list_entity_property_info()); echo '</pre>';
+
+  $items = array();
+
+  $items['admin/config/system/mailjet/mailjet-panel/my-account'] = array(
+    'title' => 'My Account',
+    'description' => 'Click here to change account settings, configure SPF and DKIM for optimized deliverability, etc.',
+    'access arguments' => array('administer mailjet module'),
+    'page callback' => 'mailjet_go_to_external_link',
+    'weight' => 10,
+    'type' => MENU_LOCAL_ACTION,
+    'page arguments' => array(IFRAME_URL . 'account'),
+  );
+
+  $items['admin/config/system/mailjet/mailjet-panel/upgrade'] = array(
+    'title' => 'Upgrade',
+    //'page callback' => 'mailjet_plans_iframe',
+    'access arguments' => array('administer mailjet module'),
+    'description' => 'Click here to change/upgrade your current plan',
+    'file path' => drupal_get_path('module', 'mailjet'),
+    'file' => 'includes/mailjet.iframes.inc',
+    'type' => MENU_LOCAL_ACTION,
+    'weight' => 11,
+    'page callback' => 'mailjet_go_to_external_link',
+    'page arguments' => array(IFRAME_URL . 'pricing'),
+  );
+
+  $items['admin/config/system/mailjet/mailjet-panel'] = array(
+    'title' => 'Mailjet',
+    'description' => 'Send your emails by your Mailjet API.',
+    'page callback' => 'mailjet_panel_page',
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  ////main page mail jet
+  $items['admin/config/system/mailjet'] = array(
+    'title' => 'Mailjet settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('mailjet_admin_settings_form'),
+    'access arguments' => array('administer mailjet module'),
+    'description' => 'Send your emails by your Mailjet API.',
+    'file' => 'includes/mailjet.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  //not working
+  $items['admin/config/system/mailjet/settings'] = array(
+    'title' => 'Settings',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => -10,
+  );
+
+
+  $items['admin/config/system/mailjet/settings/test'] = array(
+    'title' => 'Send test email',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('mailjet_admin_test_message_form'),
+    'access arguments' => array('administer mailjet module'),
+    'description' => 'Send a test e-mail using MailJet.',
+    'file' => 'includes/mailjet.admin.inc',
+    'type' => MENU_LOCAL_ACTION,
+  );
+
+
+  //enter API key and secret key
+  $items['admin/config/system/mailjet/api'] = array(
+    'title' => 'API',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('mailjet_api_form'),
+    'access arguments' => array('administer mailjet module'),
+    'description' => 'Administer trusted domains.',
+    'file' => 'includes/mailjet.admin.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+
+
+  $items['admin/config/system/mailjet/api/register'] = array(
+    'title' => 'Register',
+    //'page callback' => 'mailjet_register_iframe',
+    'access arguments' => array('administer mailjet module'),
+    'description' => 'Administer trusted domains.',
+    'file' => 'includes/mailjet.iframes.inc',
+    'type' => MENU_LOCAL_ACTION,
+    'page callback' => 'mailjet_go_to_external_link',
+    'page arguments' => array(IFRAME_URL . 'signup?aff=drupal-3.0'),
+  );
+
+  $items['admin/config/system/mailjet/api/register/alter_callback'] = array(
+    'title' => 'Register',
+    'page callback' => '_mailjet_register_alter_callback',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['admin/config/system/mailjet/domains'] = array(
+    'title' => 'Domains',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('mailjet_domain_form'),
+    'access arguments' => array('administer mailjet module'),
+    'description' => 'Administer trusted domains.',
+    'file' => 'includes/mailjet.admin.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  $items['admin/config/system/mailjet/domains/add'] = array(
+    'title' => 'Add Trusted Domain',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('mailjet_domains_add_form'),
+    'access arguments' => array('administer mailjet module'),
+    'description' => 'Add a trusted domain to MailJet.',
+    'file path' => drupal_get_path('module', 'mailjet'),
+    'file' => 'mailjet.module',
+    'type' => MENU_LOCAL_ACTION,
+  );
+
+  return $items;
+}
+
+/**
+ * Form callback for adding a domain.
+ */
+function mailjet_domains_add_form($form_state) {
+  $form = array();
+
+  $form['domain'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Domain'),
+    '#description' => t('Please enter the domain name that you will be adding to your Mailjet account.'),
+    '#required' => FALSE
+  );
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Add'),
+  );
+
+  return $form;
+}
+
+/**
+ * Validate domain field of mailjet_domains_add_form
+ * domain allowed characters: letters, numbers and hyphen(-)
+ * domain cannot start or end with hyphen(-)
+ */
+function mailjet_domains_add_form_validate($form, &$form_state) {
+  if (!preg_match("/^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)+([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/", $form_state['values']['domain'])) {
+    form_set_error('name', t('Please enter a valid domain name.'));
+    return FALSE;
+  }
+  return TRUE;
+}
+
+/**
+ * Submit callback for adding a domian.
+ */
+function mailjet_domains_add_form_submit($form, &$form_state) {
+  $domain = $form_state['values']['domain'];
+  if (mailjet_user_domain_add($domain)) {
+    drupal_set_message(t('Your domain @domain has successfully been added to Mailjet. 
+      To confirm domain ownership you must create an empty text file and place it in the root folder of the website.  
+      The file name is shown in the table below on the same line as your newly added domain.', array(
+      '@domain' => $domain
+    )));
+    drupal_goto('admin/config/system/mailjet/domains');
+  }
+  else {
+    return FALSE;
+  }
+}
+
+/**
+ * Generates Mailjet Panel page.
+ */
+function mailjet_panel_page(){
+
+    global $base_url;
+
+  $output_links_mailjet = "<div class='left clearfix'><div class='admin-panel'><h3>".t('Mailjet configuration panel')."</h3><div class='body'><ul class='admin-list'>";
+  $action_links = menu_local_actions();
+  foreach ($action_links as $link) {
+    $output_links_mailjet .= "<li class='leaf'><a href='" . $base_url . "/" . $link['#link']['path'] . "'>" . $link['#link']['title'] . "</a><div class='description'>" . $link['#link']['description'] . "</div></li>";
+  }
+
+  $output_links_mailjet .="</ul></div></div>";
+  $output_links_mailjet .="<style>ul.action-links{display: none;}</style>";
+
+  return $output_links_mailjet;
+}
+
+/**
+ * Redirects to external links.
+ */
+function mailjet_go_to_external_link($url) {
+  if (module_exists('overlay') && overlay_get_mode() == 'child') {
+    unset($_GET['destination']);
+    overlay_close_dialog($url, array('external' => TRUE));
+    $form_state['redirect'] = FALSE;
+  }
+  else {
+    $form_state['redirect'] = $url;
+    drupal_goto($url);
+  }
+}
+
+/**
+ * Registration alter callback.
+ */
+function _mailjet_register_alter_callback() {
+  if (isset($_POST['data']['apikey']) && !empty($_POST['data']['apikey']) && isset($_POST['data']['secretkey']) && !empty($_POST['data']['secretkey'])) {
+
+    variable_set('mailjet_active', TRUE);
+    variable_set('mailjet_username', $_POST['data']['apikey']);
+    variable_set('mailjet_password', $_POST['data']['secretkey']);
+
+      $mailjetApiClient = MailjetApi::getApiClient($_POST['data']['apikey'], $_POST['data']['secretkey']);
+      $params = [
+          'AllowedAccess' => 'campaigns,contacts,stats,pricing,account,reports',
+          'APIKeyALT' => $_POST['data']['apikey'],
+          'TokenType' => 'iframe',
+          'IsActive' => TRUE,
+          'SentData' => serialize(['plugin' => 'drupal-7']),
+      ];
+      $response = MailjetApi::createApiToken($params);
+      if (false != $response) {
+
+      variable_set('APItoken', $response[0]['Token']);
+      mailjet_first_sync(mailjet_get_default_list_id(mailjet_new()));
+    }
+    else {
+      drupal_set_message(t('Token was not generated! Please try again.'), 'error');
+    }
+  }
+
+  if (strpos($_POST['data']['next_step_url'], 'welcome') !== FALSE) {
+    $res = array(
+      "code" => 1, // necessary for Mailjet's system to proceed
+      "continue" => TRUE,
+      "exit_url" => 'admin/config/system/mailjet/api',
+    );
+
+    echo json_encode($res);
+    drupal_exit();
+  }
+
+  $res = array(
+    "code" => 1, // necessary for Mailjet's system to proceed
+    "continue" => TRUE,
+    "continue_address" => $_POST['data']['next_step_url'],
+  );
+
+  echo json_encode($res);
+  drupal_exit();
+}
+
+/**
+ * Implements hook_permission().
+ *
+ * Defines a permission for managing the mailjet variables.
+ */
+function mailjet_permission() {
+  return array(
+    'administer mailjet module' => array(
+      'title' => t('Administer Mailjet settings module'),
+      'description' => t('Perform administration tasks for Mailjet settings module.')
+    )
+  );
+}
+
+/**
+ * Implements hook_libraries_info().
+ */
+function mailjet_libraries_info() {
+  $libraries['phpmailer'] = array(
+    'name' => 'phpmailer',
+    'vendor url' => 'http://github.com/PHPMailer/PHPMailer',
+    'download url' => 'http://github.com/PHPMailer/PHPMailer/archive/v5.2.21.zip',
+    'version' => '5.2.21',
+    'files' => array(
+      'php' => array(
+        'PHPMailerAutoload.php'
+      )
+    )
+  );
+
+  return $libraries;
+}
+
+/**
+ * Creates a new MailJet Object
+ */
+function mailjet_new() {
+  if (variable_get('mailjet_active', FALSE) && variable_get('mailjet_username') && variable_get('mailjet_password')) {
+    $key = variable_get('mailjet_username', '');
+    $secret_key = variable_get('mailjet_password', '');
+    $mailjetApiClient = MailjetTools\MailjetApi::getApiClient($key, $secret_key);
+    return $mailjetApiClient;
+  }
+  if (!variable_get('mailjet_username') && !variable_get('mailjet_password') && user_access('administer mailjet module')) {
+    drupal_set_message(t('You need to add your Mailjet API details before you can continue'), 'warning');
+    drupal_goto('admin/config/system/mailjet/api');
+  }
+  return FALSE;
+}
+
+
+
+/**
+ * Get the user infos.
+ *
+ * @return boolean
+ */
+function mailjet_user_infos() {
+  $mailjetApiClient = mailjet_new();
+  if (!$mailjetApiClient) {
+    drupal_goto('admin/config/system/mailjet/api');
+    return FALSE;
+  }
+    $responseProfile = $mailjetApiClient->get(Resources::$Myprofile);
+    $responseUser = $mailjetApiClient->get(Resources::$User);
+
+    if ($responseProfile->success()) {
+        return array_merge($responseProfile->getData()[0], $responseUser->getData()[0]);
+    }
+    else {
+        return FALSE;
+    }
+}
+
+
+
+
+/**
+ * Update the user infos.
+ *
+ * @param unknown $user
+ * @return boolean
+ */
+function mailjet_mjuser_update($user) {
+    $mailjetApiClient = mailjet_new();
+    $response = $mailjetApiClient->put(Resources::$Myprofile, ['body' => $user]);
+    return ($response->success()) ? TRUE : FALSE;
+}
+
+/**
+ * User tracking check.
+ */
+function mailjet_user_trackingcheck() {
+    $mailjetApiClient = mailjet_new();
+    $filters = [
+        'APIKey' => MailjetApi::$mjApiKey,
+    ];
+    $response = $mailjetApiClient->get(Resources::$Eventcallbackurl, ['filters' => $filters]);
+    if ($response->success()) {
+        return $response->getData();
+    }
+    return FALSE;
+}
+
+/**
+ * Mailjet traging update.
+ */
+function mailjet_user_trackingupdate($tracking, $current_events) {
+
+    $mailjetApiClient = mailjet_new();
+    try {
+        $check = ["open", "click", "bounce", "spam", "blocked", "unsub"];
+        foreach ($tracking as $key => $value) {
+            if (in_array($key, $check)) {
+                if ($value == 1 && !array_key_exists($key, $current_events)) {
+                    $body = [
+                        'APIKeyALT' => MailjetApi::$mjApiKey,
+                        'EventType' => $key,
+                        'Url' => $tracking['url'],
+                    ];
+
+                    $new_response = $mailjetApiClient->post(Resources::$Eventcallbackurl, ['body' => $body]);
+
+                    unset($body);
+                    unset($new_response);
+                }
+
+                if ($value == 0 && array_key_exists($key, $current_events)) {
+                    $del_response = $mailjetApiClient->delete(Resources::$Eventcallbackurl, ['id' => $current_events[$key]]);
+
+                    unset($del_response);
+                }
+            }
+        }
+        return TRUE;
+    } catch (Exception $e) {
+        return FALSE;
+    }
+}
+
+/**
+ * Returns a list of trusted domains.
+ */
+function mailjet_user_domain_list() {
+
+    $mailjetApiClient = mailjet_new();
+    $filters = [
+        'style' => 'full',
+        'limit' => 0,
+    ];
+    $response = $mailjetApiClient->get(Resources::$Sender, ['filters' => $filters]);
+    if ($response->success()) {
+        $senders = $response->getData();
+        $domains = [];
+        foreach ($senders as $sender) {
+            if (!empty($sender['DNS']) and !array_key_exists($sender['DNS']['Domain'], $domains) && strpos($sender['Email']['Email'], "*@") !== FALSE) {
+                $domains[$sender['DNS']['Domain']] = $sender;
+            }
+        }
+        return $domains;
+    } else {
+        return false;
+    }
+}
+
+
+/**
+ * Gets trusted email domains.
+ */
+function mailjet_get_a_trusted_email() {
+    $mailjetApiClient = mailjet_new();
+
+    $filters = [
+        'style' => 'full'
+    ];
+    $response = $mailjetApiClient->get(Resources::$Sender, ['filters' => $filters]);
+    if ($response->success()) {
+        $senders = $response->getData();
+        foreach ($senders as $emailObject) {
+            if ($emailObject['Status'] == 'Active') {
+                return $emailObject['Email']['Email'];
+            }
+        }
+    }
+
+    return variable_get('site_mail', '');
+}
+
+
+/**
+ * Add a trusted domain
+ *
+ * @param unknown $domain
+ * @return boolean
+ */
+function mailjet_user_domain_add($domain) {
+    $mailjetApiClient = mailjet_new();
+    if (strpos($domain, '@') === FALSE) {
+        $domain = '*@' . $domain;
+    }
+
+    $body = [
+        'Email' => $domain,
+    ];
+
+    $response = $mailjetApiClient->post(Resources::$Sender, ['body' => $body]);
+    if ($response->success()) {
+        return TRUE;
+    }
+    else {
+        drupal_set_message(t($response->getReasonPhrase()), 'error');
+        return FALSE;
+    }
+}
+
+
+/**
+ * Check a domain
+ *
+ * @param unknown $domain
+ * @return boolean
+ */
+function mailjet_user_domain_status($domain) {
+    $mailjetApiClient = mailjet_new();
+
+    if (strpos($domain, '@') === FALSE) {
+        $domain = '*@' . $domain;
+    }
+
+    $body = [
+        'Email' => $domain,
+    ];
+
+
+    $response = $mailjetApiClient->post(Resources::$Sender, ['body' => $body]);
+    if ($response->success()) {
+        return TRUE;
+    }
+    else {
+        return FALSE;
+    }
+}
+
+
+/**
+ * Checks for same names.
+ */
+function _has_drupal_property($mailjet_property, $drupal_fields) {
+  foreach ($drupal_fields as $key => $value) {
+    if ($value['Name'] == $mailjet_property['Name']) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+ * Sync user's properties.
+ */
+function mailjet_properties_sync($newField = NULL, $delete = FALSE) {
+  if (!variable_get('mailjet_properties_sync', TRUE)) {
+    return;
+  }
+
+  global $user;
+
+  //get all user fields from Drupal system
+  $user_fields = array();
+  //add this property by default
+  $user_fields[] = ["Name" => 'name', "Datatype" => 'str'];
+
+  $user_info = user_load($user->uid);
+
+  foreach ($user_info as $key => $value) {
+    if (strpos($key, "field_") !== FALSE) {
+      $current_field = field_info_field($key);
+
+      $field_type = 'str';
+      if (isset($current_field['columns']['value'])) {
+        if ($current_field['type'] == "list_boolean") {
+          $field_type = 'bool';
+        } else if ($current_field['columns']['value']['type'] == "int") {
+          $field_type = 'int';
+        } else if ($current_field['columns']['value']['type'] == "float") {
+          $field_type = 'float';
+        } else if ($current_field['columns']['value']['type'] == "numeric" && isset($current_field['columns']['value']['precision']) && $current_field['columns']['value']['precision'] == 10) {
+          $field_type = 'float';
+        } else if ($current_field['columns']['value']['type'] == "numeric") {
+          $field_type = 'int';
+        }
+
+      }
+      elseif (isset($current_field['columns']['target_id'])) {
+        $field_type = $current_field['columns']['target_id']['type'];
+      }
+
+      $key = str_replace('email', 'property_email', $key);
+
+      $user_fields[] = array(
+        "Name" => str_replace('field_', '', $key),
+        "Datatype" => $field_type
+      );
+    }
+  }
+
+  if ($newField) {
+    if ($delete === FALSE) {
+      $field_type = 'str';
+      if ($newField['type'] == "number_integer") {
+        $field_type = 'int';
+      } else if ($newField['type'] == "number_float" || $newField['type'] == "number_decimal") {
+        $field_type = 'float';
+      } else if ($newField['type'] == "list_boolean") {
+        $field_type = 'bool';
+      }
+
+      $user_fields[] = [
+        "Name" => str_replace('field_', '', $newField['field_name']),
+        "Datatype" => $field_type,
+      ];
+    } else {
+      foreach ($user_fields as $key => $value) {
+        if ($value['Name'] === 'field_' . $newField['field_name']) {
+          unset($user_fields[$key]);
+        }
+      }
+    }
+  }
+
+
+  //get existing contact properties from MailJet
+  $properties = array();
+  $mailjetApiClient = mailjet_new();
+  $response = MailjetApi::getContactProperties();
+  if (false !== $response) {
+    foreach ($response as $property) {
+      $properties[$property['Name']] = (array) $property;
+    }
+  }
+
+    //sync Drupal fields to MJ properties
+  foreach ($user_fields as $field) {
+    if (array_key_exists($field['Name'], $properties)) {
+      if ($field['Datatype'] == $properties[$field['Name']]['Datatype']) {
+        //drupal_set_message(t('Field '.$field['Name'].' is already in your MailJet account.'),'status'); // no need of this message - too much spam :)
+      }
+      else {
+        $updateResponse = MailjetApi::updateMailjetContactProperty($properties[$field['Name']]['ID'], $field['Name'], $field['Datatype']);
+        if (false != $updateResponse) {
+//          drupal_set_message(t('Field ' . $field['Name'] . ' is now updated in your MailJet account!'), 'status');
+          $properties[$field['Name']] = $field; // Add it here, so the next loop it wont be handled again
+        }
+        else {
+ //         drupal_set_message(t('Couldn\'t update ' . $field['Name'] . ' in your MailJet account!'), 'error');
+        }
+      }
+    }
+    else {
+      $insertResponse = MailjetApi::createMailjetContactProperty($field['Name'], $field['Datatype']);
+      if (false != $insertResponse) {
+//        drupal_set_message(t('Field ' . $field['Name'] . ' is now inserted in your MailJet account!'), 'status');
+        $properties[$field['Name']] = $field; // Add it here, so the next loop it wont be handled again
+      }
+      else {
+ //       drupal_set_message(t('Couldn\'t insert ' . $field['Name'] . ' in your MailJet account!'), 'error');
+      }
+    }
+  }
+  return;
+}
+
+/**
+ * Sync user hooks.
+ */
+function mailjet_user_insert($user) {
+  mailjet_sync_single_user($user, 'add');
+}
+
+/**
+ * Updates Mailjet users
+ */
+function mailjet_user_update($user) {
+  // Only trigger updates when the account status has changed.
+  if (isset($user['status'])) {
+    if ($user['status'] > 0) { //should be the same as cancel hook
+      mailjet_sync_single_user($user, 'update');
+    }
+    else {
+      mailjet_sync_single_user($user, 'remove');
+    }
+  }
+}
+
+/**
+ * Deletes mailjet user.
+ */
+function mailjet_user_delete($user) {
+  mailjet_sync_single_user((array) $user, 'remove');
+}
+
+function mailjet_user_cancel($user) {
+  mailjet_sync_single_user($user, 'remove');
+}
+
+function mailjet_sync_single_user($user, $action) {
+  if (!variable_get('mailjet_properties_sync', TRUE)) {
+    return;
+  }
+  if (empty($user['mail'])) {
+    return;
+  }
+
+  $mailjetApiClient = mailjet_new();
+
+  $mj_lists = array();
+  if (is_array($user) && isset($user['mail']) && isset($user[$user['mail']])) {
+    $mj_lists = explode(",", $user[$user['mail']]['mj_lists']);
+    $mj_lists = array_diff($mj_lists, array(''));
+  }
+  // Add the default list as well
+  $mj_lists[] = mailjet_get_default_list_id($mailjetApiClient);
+
+  $contact = [
+    'Email' => $user['mail']
+  ];
+
+  $properties = [];
+
+  switch ($action) {
+    case 'add':
+    case 'update':
+      foreach ($mj_lists as $listId) {
+
+        $properties = processCustomFields($user);
+        if (!empty($properties)) {
+          $contact['Properties'] = $properties;
+        }
+
+        mailjet_properties_sync();
+
+        $response = MailjetApi::syncMailjetContact($listId, $contact);
+
+        if (false != $response) {
+//            drupal_set_message(t('Contact data was synced.'), 'status');
+        } else {
+  //          drupal_set_message(t('Contact data was not synced.'), 'error');
+        }
+      }
+      break;
+
+    case 'remove':
+      foreach ($mj_lists as $listId) {
+        //add new email
+        $response = MailjetApi::syncMailjetContact($listId, $contact, 'remove');
+        if (false == $response) {
+            watchdog('mailjet_messages', 'The new contact was unsubscribed from list #' . $listId . '.');
+        }
+        else {
+            watchdog('mailjet_messages', 'The new contact was not unsubscribed from list #' . $listId . '.');
+        }
+      }
+      break;
+    default:
+      drupal_set_message(t("No user action"), "warning");
+      break;
+  }
+}
+
+/**
+ * Get sync user info.
+ */
+function get_sync_info($user) {
+  // get all Drupal views
+  $views = views_get_all_views();
+  $drupal_users = array();
+  foreach ($views as $v) {
+    // check if the view is type 'user' (the type for MJ lists)
+    if ($v->base_table == "users" && isset($v->display['default']->display_options['style_options']['email'])) {
+      //execute view
+      $field = $v->display['default']->display_options['style_options']['email'];
+      $v->execute();
+      $total_rows = $v->total_rows;
+
+      //check if the email is part of this view
+      $x = 0;
+      while ($x != $total_rows) {
+        if ($user['mail'] == $v->render_field($field, $x)) {
+          //get lists using this view
+          $lists = "";
+          if ((isset($user['original']) && $user['mail'] != $user['original']->mail) || $user['is_new'] == 1) {
+            $query = new EntityFieldQuery();
+            $query->entityCondition('entity_type', 'mailjet_list');
+            $res = $query->execute();
+            foreach ($res['mailjet_list'] as $key => $value) {
+              $mj_list = entity_load('mailjet_list', array($key));
+              $mjlname = explode("|", $mj_list[$key]->mailjet_list_view[LANGUAGE_NONE][0]['vname']);
+              if ($v->name == $mjlname[0]) {
+                $lists .= $mj_list[$key]->list_id . ",";
+              }
+            }
+          }
+
+          //load user info for sync
+          $user_info = (array) user_load_by_mail($v->render_field($field, $x));
+
+          if (array_key_exists($v->render_field($field, $x), $drupal_users)) {
+            $drupal_users[$v->render_field($field, $x)]['mj_lists'] .= $lists;
+          }
+          else {
+            $drupal_users[$v->render_field($field, $x)] = array(
+              'uid' => $user_info['uid'],
+              'name' => $user_info['name'],
+              'mail' => $user_info['mail'],
+              'created' => $user_info['created']
+            );
+
+            $drupal_users[$v->render_field($field, $x)]['mj_lists'] = $lists;
+
+            foreach ($user_info as $key => $value) {
+              //ADD ALL FIELDS
+              if (strpos($key, "field_") !== FALSE) {
+                $drupal_users[$v->render_field($field, $x)]['properties'][str_replace('field_', '', $key)] = (!empty($value)) ? $value['und'][0]['value'] : '';
+              }
+            }
+          }
+        }
+        $x++;
+      }
+
+      // If the user status is changed to "BLOCKED" / "DELETED" - the user is ignored and it's not loaded in the view
+      if ($user['status'] == 0) {
+        $lists = "";
+
+        $query = new EntityFieldQuery();
+        $query->entityCondition('entity_type', 'mailjet_list');
+        $res = $query->execute();
+        foreach ($res['mailjet_list'] as $res_key => $res_value) {
+          $mj_list = entity_load('mailjet_list', array($res_key));
+          $mjlname = explode("|", $mj_list[$res_key]->mailjet_list_view[LANGUAGE_NONE][0]['vname']);
+          if ($v->name == $mjlname[0]) {
+            $lists .= $mj_list[$res_key]->list_id . ",";
+          }
+        }
+
+        if (array_key_exists($user['mail'], $drupal_users)) {
+          $drupal_users[$user['mail']]['mj_lists'] .= $lists;
+        }
+        else {
+          $drupal_users[$user['mail']] = array(
+            'uid' => $user['original']->uid,
+            'name' => $user['original']->name,
+            'mail' => $user['original']->mail,
+            'created' => $user['original']->created
+          );
+          $drupal_users[$user['mail']]['mj_lists'] = $lists;
+        }
+      }
+    }
+  }
+
+  return $drupal_users;
+}
+
+/**
+ * Checks if batch process is running.
+ */
+function is_batchjob_running($bjID) {
+    $mailjetApiClient = mailjet_new();
+    $filters = [
+        'APIKeyALT' => variable_get('mailjet_username'),
+    ];
+    $responseBatchJobCheck = $mailjetApiClient->get(Resources::$Batchjob, ['id' => $bjID, 'filters' => $filters]);
+    if ($responseBatchJobCheck->success()) {
+        $responseBatchJobCheckData = $responseBatchJobCheck->getData();
+    }
+    if (!empty($responseBatchJobCheckData[0]['Status']) && $responseBatchJobCheckData[0]['Status'] == "Completed") {
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+/**
+ * Gets Mailjet list id.
+ */
+function mailjet_get_default_list_id($mailjetApiClient) {
+    $mailjetApiClient = mailjet_new();
+    // Gets Mailjet contact list by name
+    $contactsList = MailjetApi::getMailjetContactListByName(mailjet_get_default_list_name());
+
+    if (false != $contactsList) {
+        $def_list_id = $contactsList[0]['ID'];
+    }
+    return empty($def_list_id) ? mailjet_create_default_list() : $def_list_id;
+
+}
+
+function mailjet_get_default_list_name() {
+  return 'Drupal contact list';
+}
+
+/**
+ * Create the default Drupal contact list if not existing.
+ */
+function mailjet_create_default_list() {
+    $mailjetApiClient = mailjet_new();
+    $responseNewContactsList = MailjetApi::createMailjetContactList(mailjet_get_default_list_name());
+    if (false != $responseNewContactsList) {
+        $def_list_id = $responseNewContactsList[0]['ID'];
+        drupal_set_message(t('Default list was created!'), 'status');
+    }
+    else {
+        drupal_set_message(t('Default list was not created! Please try again.'), 'error');
+    }
+    return empty($def_list_id) ? 0 : $def_list_id;
+
+}
+
+/**
+ * Sync lists.
+ */
+function mailjet_first_sync($list_id) {
+  if (!variable_get('mailjet_properties_sync', TRUE)) {
+    return;
+  }
+
+  //get all drupal users
+  $users = entity_load('user');
+  $contacts = [];
+  $properties = [];
+
+  foreach ($users as $user_id => $user) {
+    if ($user_id > 0 && $user->status > 0) {
+      $contact = [];
+      $properties = processCustomFields($user);
+      $contact['Email'] = $user->mail;
+
+      if (!empty($properties)) {
+        $contact['Properties'] = $properties;
+      }
+
+      $contacts[] = $contact;
+    }
+  }
+
+  mailjet_properties_sync();
+
+  $responseInitialSync = MailjetApi::syncMailjetContacts($list_id, $contacts);
+  if (false == $responseInitialSync) {
+    drupal_set_message(t('Could not create the contact list'));
+  }
+
+  drupal_set_message(t('Sync in progress.'), 'status');
+}
+
+
+function processCustomFields($user)
+{
+  $properties = [];
+
+  foreach ($user as $propertyName => $propertyValue) {
+
+    // Sync only the `name` from `user` entity
+    if ('name' == $propertyName) {
+      $properties[$propertyName] = $propertyValue;
+    }
+
+    $propertyName = str_replace('email', 'property_email', $propertyName);
+
+    if (strpos($propertyName, "field_") !== FALSE) {
+      // Get property types and use it to cast property values
+      $currentField = field_info_field($propertyName);
+      $currentFieldType = $currentField['type'];
+      if (!empty($propertyValue['und'])) {
+        // Process multi-value fields
+        if (count($propertyValue['und']) > 1) {
+          $values = [];
+          foreach ($propertyValue['und'] as $value) {
+            $values[] = $value['value'];
+            $commaSeparatedValues = implode(', ', $values);
+            $properties[str_replace('field_', '', $propertyName)] = (!empty($commaSeparatedValues)) ? $commaSeparatedValues : '';
+          }
+        } else {
+          $castedPropertyValue = '';
+          if (!empty($propertyValue) && isset($propertyValue['und'][0]['value'])) {
+            $castedPropertyValue = $propertyValue['und'][0]['value'];
+            if ($currentFieldType == "number_integer") {
+              $castedPropertyValue = intval($castedPropertyValue);
+            } else  if ($currentFieldType == "number_float" || $currentFieldType == "number_decimal" || $currentFieldType == "list_float") {
+              $castedPropertyValue = floatval($castedPropertyValue);
+            } else if ($currentFieldType == "list_boolean") {
+              $castedPropertyValue = boolval($castedPropertyValue);
+            }
+          }
+          $properties[str_replace('field_', '', $propertyName)] = $castedPropertyValue;
+        }
+      }
+    }
+  }
+
+  return $properties;
+}
+
+
+/**
+ * Creates mailjet field.
+ */
+function mailjet_field_create_field($field) {
+  mailjet_properties_sync($field);
+}
+
+/**
+ * Deletes mailjet field.
+ */
+function mailjet_field_delete_field($field) {
+  mailjet_properties_sync($field, TRUE);
+}
+
+/**
+ * Implements hook_menu_breadcrumb_alter().
+ */
+function mailjet_menu_breadcrumb_alter(&$active_trail, $item) {
+  global $base_url;
+  $active_trail = array_merge(array_slice($active_trail, 0, count($active_trail)), array($active_trail[count($active_trail) - 1]));
+}
+
+
+// Getter functions - LISTS and Properties
+function mailjet_get_lists() {
+    $contact_lists = [];
+
+    $mailjetApiClient = mailjet_new();
+    $contactsListResponse = MailjetApi::getMailjetContactLists(get_mailjet_get_lists_limit());
+    if (false != $contactsListResponse) {
+        foreach ($contactsListResponse as $list) {
+            $contact_lists[$list['ID']] = $list['Name'];
+        }
+    }
+
+    return $contact_lists;
+}
+
+function get_mailjet_get_lists_limit() {
+    return 500;
+}
+
+
+function mailjet_get_property_name($id) {
+    $mailjet_properties = mailjet_get_properties();
+    $counter_prop = 0;
+
+    foreach ($mailjet_properties as $key => $prop) {
+
+        if (strpos($prop, 'message') !== FALSE) {
+            unset($mailjet_properties[$key]);
+        }
+        elseif (strpos($prop, 'commerce') !== FALSE) {
+            unset($mailjet_properties[$key]);
+        }
+        elseif (strpos($prop, 'mailjet') !== FALSE) {
+            unset($mailjet_properties[$key]);
+        }
+        elseif (strpos($prop, 'signup') !== FALSE) {
+            unset($mailjet_properties[$key]);
+        }
+    }
+
+    $conctact_prop = [];
+    foreach ($mailjet_properties as $key => $prop) {
+        $contact_prop[$counter_prop] = $prop;
+        $counter_prop++;
+    }
+
+    return $contact_prop[$id];
+}
+
+
+function mailjet_get_property_type($property_name) {
+    //get existing contact properties from MailJet
+    $properties = [];
+    $mailjetApiClient = mailjet_new();
+    $response = MailjetApi::getMailjetContactProperties();
+    if (false != $response) {
+        foreach ($response as $property) {
+            if ($property['Name'] == $property_name) {
+                return $property['Datatype'];
+                break;
+            }
+        }
+    }
+}
+
+
+// get names of contact properties
+function mailjet_get_properties() {
+    //get existing contact properties from MailJet
+    $properties = [];
+    $mailjetApiClient = mailjet_new();
+    $response = MailjetApi::getMailjetContactProperties();
+    if (false != $response) {
+        foreach ($response as $property) {
+            $properties[$property['Name']] = $property['Name'];
+        }
+    }
+
+
+    return $properties;
+}
+
+
+/**
+ * Implements view callback function
+ */
+function mailjet_roi_stats() {
+
+  $view = views_get_view('mailjet_roi');
+  $args[] = '';
+  $display_id = 'page';
+  $content = $view->execute_display($display_id, $args);
+
+  $build['content'] = array(
+    'dummy' => array('#markup' => $content)
+  );
+  return $build;
+}
+
+/**
+ * Implements function for find a contact in some contact list
+ */
+function mailjet_find_conctact($email, $list_id) {
+    $mailjetApiClient = mailjet_new();
+    $response = TRUE;
+
+    $filters = [
+        'ContactEmail' => $email,
+        'ContactsList' => $list_id,
+    ];
+
+    $result = $mailjetApiClient->get(Resources::$Listrecipient, ['filters' => $filters]);
+    if ($result->success() && $result->getCount() > 0) {
+        $data = $result->getData();
+        if (isset($data[0]['IsUnsubscribed']) && true == $data[0]['IsUnsubscribed']) {
+            $response = FALSE;
+        }
+    } else {
+        $response = FALSE;
+    }
+    return $response;
+}
+
+

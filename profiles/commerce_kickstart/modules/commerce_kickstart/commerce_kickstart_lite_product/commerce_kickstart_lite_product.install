@@ -1,0 +1,145 @@
+<?php
+
+/**
+ * Implements hook_enable().
+ *
+ * Rebuilds the feature immediately after it's enabled.
+ */
+function commerce_kickstart_lite_product_enable() {
+  commerce_kickstart_rebuild_feature('commerce_kickstart_lite_product');
+
+  // Set up the zoom if it's enabled.
+  if (variable_get('commerce_kickstart_product_zoom_enabled', FALSE)) {
+    $settings = array(
+      'label' => 'hidden',
+      'module' => 'cloud_zoom',
+      'settings' =>
+      array(
+        'gallery_filedset' =>
+        array(
+          'gallery_mode' => 1,
+          'thumb_style' => 'product_thumbnail',
+        ),
+        'slide_style' => 'product_full',
+        'zoom_position_fieldset' =>
+        array(
+          'adjust_x' => '0',
+          'adjust_y' => '0',
+          'position' => 'inside',
+          'zoom_height' => 'auto',
+          'zoom_width' => 'auto',
+        ),
+        'zoom_style' => '0',
+        'zoom_style_fieldset' =>
+        array(
+          'Show title' => 1,
+          'lens_opacity' => '0.5',
+          'smooth_move' => '3',
+          'soft_focus' => 0,
+          'tint' => 'false',
+          'tint_opacity' => '0.5',
+          'title_opacity' => '0.5',
+        ),
+      ),
+      'type' => 'cloud_zoom',
+      'weight' => '3',
+    );
+    $settings_node_product_list = array(
+      'label' => 'hidden',
+      'module' => 'image_delta_formatter',
+      'settings' => array(
+        'deltas' => '0',
+        'deltas_reversed' => 0,
+        'image_link' => 'content',
+        'image_style' => 'product_medium',
+      ),
+      'type' => 'image_delta',
+      'weight' => '1',
+    );
+    $settings_add_to_cart_confirm = array(
+      'label' => 'hidden',
+      'module' => 'image_delta_formatter',
+      'settings' => array(
+        'deltas' => 0,
+        'deltas_reversed' => 0,
+        'image_link' => '',
+        'image_style' => 'product_thumbnail',
+      ),
+      'type' => 'image_delta',
+      'weight' => 0,
+    );
+
+    $instance = array(
+      'entity_type' => 'commerce_product',
+      'bundle' => 'product',
+      'field_name' => 'field_images',
+      'label' => 'Images',
+      'display' => array(
+        'add_to_cart_confirmation_view' => $settings_add_to_cart_confirm,
+        'default' => $settings,
+        'node_product_list' => $settings_node_product_list,
+      ),
+    );
+    $field_instance = field_read_instance('commerce_product', 'field_images', 'product');
+    $field_settings = $field_instance['display']['default'];
+    variable_set('commerce_kickstart_product_zoom_settings', $field_settings);
+    field_update_instance($instance);
+  }
+}
+
+/**
+ * Implementation of hook_install()
+ */
+function commerce_kickstart_lite_product_install() {
+  $t = get_t();
+
+  db_update('system')
+    ->fields(array('weight' => 10))
+    ->condition('name', 'commerce_kickstart_lite_product')
+    ->execute();
+
+  // Generate a product display content type.
+  // @note: We do this here and not Features so it can be deleted by users.
+  $product_display = array(
+    'type' => 'product_display',
+    'name' => $t('Product display'),
+    'base' => 'node_content',
+    'description' => $t('Use product displays for adding product pages to your store'),
+    'custom' => 1,
+    'modified' => 1,
+    'locked' => 0,
+  );
+  $product_display = node_type_set_defaults($product_display);
+  node_type_save($product_display);
+  node_add_body_field($product_display);
+
+  // Create a default catalog vocabulary.
+  // @note: We do this here and not Features so it can be deleted by users.
+  $vocabulary = (object) array(
+    'name' => $t('Product category'),
+    'description' => '',
+    'machine_name' => 'product_category',
+    'hierarchy' => 0,
+  );
+  taxonomy_vocabulary_save($vocabulary);
+
+  // Create a "Free shipping" service so that the shipping pane is not empty.
+  $shipping_service = commerce_flat_rate_service_new();
+  $shipping_service['name'] = 'free_shipping';
+  $shipping_service['title'] = 'Free shipping';
+  $shipping_service['base_rate'] = array(
+    'amount' => 0,
+    'currency_code' => commerce_default_currency(),
+    'data' => array(),
+  );
+  commerce_flat_rate_service_save($shipping_service);
+}
+
+/**
+ * Release the product display node type from Features.
+ */
+function commerce_kickstart_lite_product_update_7201() {
+  $product_display_type = node_type_load('product_display');
+  $product_display_type->custom = 1;
+  node_type_save($product_display_type);
+}

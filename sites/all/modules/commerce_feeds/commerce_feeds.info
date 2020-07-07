@@ -1,0 +1,20 @@
+name = Commerce Feeds
+description = Feeds integration for Commerce products
+core = 7.x
+package = Commerce (contrib)
+dependencies[] = feeds
+dependencies[] = ctools
+dependencies[] = commerce
+dependencies[] = commerce_product
+
+files[] = plugins/FeedsCommerceCustomerProfileProcessor.inc
+files[] = plugins/FeedsCommerceProductProcessor.inc
+files[] = plugins/FeedsCommerceCouponProcessor.inc
+;files[] = tests/commerce_feeds_processor_commerce_product.test
+
+; Information added by Drupal.org packaging script on 2015-11-16
+version = "7.x-1.4"
+core = "7.x"
+project = "commerce_feeds"
+datestamp = "1447686252"
+

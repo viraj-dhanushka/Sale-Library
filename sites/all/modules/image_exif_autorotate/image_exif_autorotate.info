@@ -1,0 +1,12 @@
+name = Image EXIF Autorotate
+description = Automatically rotates any managed file image.
+core = 7.x
+package = Media
+dependencies[] = imagecache_autorotate
+
+; Information added by Drupal.org packaging script on 2015-01-28
+version = "7.x-1.0"
+core = "7.x"
+project = "image_exif_autorotate"
+datestamp = "1422432482"
+

@@ -1,0 +1,1591 @@
+<?php
+
+/**
+ * @file
+ * Module code for DrupalChat.
+ */
+
+define('DRUPALCHAT_AJAX', 0);
+define('DRUPALCHAT_LONGPOLL', 1);
+define('DRUPALCHAT_NODEJS', 2);
+define('DRUPALCHAT_COMMERCIAL', 3);
+
+define('DRUPALCHAT_USER_OFFLINE', 0);
+define('DRUPALCHAT_USER_ONLINE', 1);
+define('DRUPALCHAT_USER_IDLE', 2);
+
+define('DRUPALCHAT_REL_AUTH', 0);
+define('DRUPALCHAT_REL_UR', 1);
+define('DRUPALCHAT_REL_FF', 2);
+define('DRUPALCHAT_REL_OG', 3);
+
+
+if(!defined('DRUPALCHAT_EXTERNAL_HOST')){
+  define('DRUPALCHAT_EXTERNAL_HOST', 'http://api.iflychat.com');
+}
+
+if(!defined('DRUPALCHAT_EXTERNAL_PORT')){
+  define('DRUPALCHAT_EXTERNAL_PORT', '80');
+}
+
+if(!defined('DRUPALCHAT_EXTERNAL_A_HOST')){
+  define('DRUPALCHAT_EXTERNAL_A_HOST', 'https://api.iflychat.com');
+}
+
+if(!defined('DRUPALCHAT_EXTERNAL_A_PORT')){
+  define('DRUPALCHAT_EXTERNAL_A_PORT', '443');
+}
+
+if(!defined('DRUPALCHAT_EXTERNAL_CDN_HOST')){
+  define('DRUPALCHAT_EXTERNAL_CDN_HOST', 'cdn.iflychat.com');
+}
+
+
+function drupalchat_verify_access() {
+  global $user;
+  // Match path if necessary.
+  $page_match = FALSE;
+  if (check_plain(variable_get('drupalchat_path_pages', NULL))) {
+    // Convert path to lowercase. This allows comparison of the same path
+    // with different case. Ex: /Page, /page, /PAGE.
+    $pages = drupal_strtolower(check_plain(variable_get('drupalchat_path_pages', NULL)));
+    if (check_plain(variable_get('drupalchat_path_visibility', BLOCK_VISIBILITY_NOTLISTED)) < BLOCK_VISIBILITY_PHP) {
+      // Convert the Drupal path to lowercase
+      $path = drupal_strtolower(drupal_get_path_alias($_GET['q']));
+      // Compare the lowercase internal and lowercase path alias (if any).
+      $page_match = drupal_match_path($path, $pages);
+      if ($path != $_GET['q']) {
+        $page_match = $page_match || drupal_match_path($_GET['q'], $pages);
+      }
+      // When $block->visibility has a value of 0 (BLOCK_VISIBILITY_NOTLISTED),
+      // the block is displayed on all pages except those listed in $block->pages.
+      // When set to 1 (BLOCK_VISIBILITY_LISTED), it is displayed only on those
+      // pages listed in $block->pages.
+      $page_match = !(check_plain(variable_get('drupalchat_path_visibility', BLOCK_VISIBILITY_NOTLISTED)) xor $page_match);
+    }
+    elseif (module_exists('php')) {
+      $page_match = php_eval(check_plain(variable_get('drupalchat_path_pages', NULL)));
+    }
+    else {
+      $page_match = FALSE;
+    }
+  }
+  else {
+    $page_match = TRUE;
+  }
+  $final = FALSE;
+  $final = ((((check_plain(variable_get('drupalchat_rel', DRUPALCHAT_REL_AUTH)) == DRUPALCHAT_REL_AUTH) && ($user->uid==0)) || ($user->uid>0)) && $page_match && user_access('access drupalchat'));
+  if(check_plain(variable_get('drupalchat_polling_method', DRUPALCHAT_AJAX)) != DRUPALCHAT_COMMERCIAL) {
+    $final = $final && (_drupalchat_get_sid() != -1);
+  }
+  return $final;
+}
+
+
+function _drupalchat_get_sid($create = TRUE) {
+  global $user;
+  $sid = -1;
+  if (check_plain(variable_get('drupalchat_polling_method', DRUPALCHAT_AJAX)) == DRUPALCHAT_NODEJS && isset($_SESSION['nodejs_config']['authToken'])) {
+    if ((!isset($_SESSION['drupalchat']) && ($user->uid <> 0 || $create)) || $_SESSION['drupalchat']) {
+      $sid = $_SESSION['nodejs_config']['authToken'];
+      $_SESSION['drupalchat'] = TRUE;
+    }
+  }
+  else if(check_plain(variable_get('drupalchat_polling_method', DRUPALCHAT_AJAX)) == DRUPALCHAT_COMMERCIAL) {
+    if($user->uid > 0) {
+      return $user->uid;
+    }
+    else {
+      return false;
+      //return drupalchat_get_current_guest_id();
+    }
+  }
+  elseif ($user->uid == 0 && function_exists('session_api_get_sid')) {
+    $_COOKIE['drupalchat_c_session'] = time();
+	$sid = session_api_get_sid($create);
+  }
+  elseif ($user->uid>0) {
+    if(property_exists($user,'sid')) {
+      $sid = $user->sid;
+	}
+	else {
+	  $sid = '';
+	}
+  }
+  return $sid;
+}
+
+/**
+ * Implements hook_help().
+ */
+function drupalchat_help($path, $arg) {
+  if ($path == 'admin/help#drupalchat') {
+    return '<p>' . t('Provides one on one chat.') . '</p>';
+  }
+}
+/**
+ * Implements hook_permission().
+ */
+function drupalchat_permission() {
+  return array(
+    'access drupalchat' => array(
+      'title' => t('Access DrupalChat'),
+      'description' => t('Access DrupalChat UI'),
+    ),
+    'administer drupalchat' => array(
+      'title' => t('Administer Drupalchat'),
+      'description' => t('Administer DrupalChat. Chat admins should be given this permission.'),
+    ),
+    'moderate drupalchat' => array(
+      'title' => t('Moderator Drupalchat'),
+      'description' => t('Moderate DrupalChat. Chat moderators should be given this permission.'),
+    ),
+    'access drupalchat own logs' => array(
+      'title' => t('Access own DrupalChat log'),
+      'description' => t('Access only self private conversation with other users'),
+    ),
+    'access drupalchat all logs' => array(
+      'title' => t('Access all DrupalChat logs'),
+      'description' => t('Access conversation of all users site-wide'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_footer().
+ */
+/*function drupalchat_footer() {
+  global $user;
+  if (drupalchat_verify_access()) {
+    return theme('drupalchat');
+  }
+}*/
+function _drupalchat_get_friends($uid){
+    $friends = array();
+    //hook to filter friends
+    drupal_alter('drupalchat_get_friends', $friends, $uid);
+
+    return $friends;
+}
+
+function drupalchat_page_alter(&$page) {
+    global $user;
+
+    if (drupalchat_verify_access() && (check_plain(variable_get('drupalchat_polling_method', DRUPALCHAT_AJAX)) != DRUPALCHAT_COMMERCIAL)) {
+        //return theme('drupalchat');
+        //echo theme('drupalchat');
+        //if (variable_get('dev_query', 0)) {
+            $page['page_bottom']['devel']= array(
+            '#type' => 'markup',
+            '#markup' => '<div style="clear:both;">' . theme('drupalchat') . '</div>',
+            );
+        //}
+    }
+
+}
+
+
+/**
+ * Implements hook_theme().
+ */
+function drupalchat_theme() {
+  return array(
+    'drupalchat' => array(
+      'template' => 'drupalchat',
+    ),
+    'drupalchat_subpanel' => array(
+      'variables' => array('subpanel' => NULL),
+    	'template' => 'drupalchat-subpanel',
+    ),
+  );
+}
+
+/**
+ * @todo Please document this function.
+ * @see http://drupal.org/node/1354
+ */
+function drupalchat_preprocess_drupalchat(&$variables) {
+  $modules = module_invoke_all('drupalchat_subpanel');
+
+  $items = array();
+  $items[] = array('data' => _drupalchat_chat(), 'id' => 'chatpanel');
+  foreach ($modules as $module) {
+    $items[] = array('data' => theme('drupalchat_subpanel', array('subpanel' => $module)), 'id' => $module['name']);
+  }
+
+  $variables['subpanels'] = theme('item_list', array('items' => $items, 'title' => NULL, 'type' => 'ul', 'attributes' => array('id' => 'mainpanel')));
+
+}
+
+function _drupalchat_chat() {
+  global $user;
+
+  $chat = array();
+  $chat['name'] = 'chat';
+  $chat['header'] = t('Chat');
+
+  $buddylist = _drupalchat_buddylist($user->uid);
+  $buddylist_online = _drupalchat_buddylist_online($buddylist);
+
+
+  //JON COMMENTS
+  $chat['contents'] = '<div class="chat_options">';
+  //$chat['contents'] .= '<a class="options" href="#">' . t('Options') . '</a>';
+  $chat['contents'] .= '<a class="chat_loading" href="#"></a>';
+  $chat['contents'] .= '</div>';
+
+  $items = array();
+  foreach ($buddylist_online as $key => $value) {
+    if ($key != 'total') {
+      $items[] = array('data' => '<a class="' . $key . '" href="#">' . $value['name'] . '</a>', 'class' => array('status-' . $value['status']));
+    }
+  }
+  if ($items) {
+    $chat['contents'] .= theme('item_list', array('items' => $items));
+  }
+  else {
+    $chat['contents'] .= theme('item_list', array('items' => array(array(
+          'data' => l(t('No users online'), 'user'),
+          'class' => array('link'),
+        ))));
+  }
+  $chat['text'] = t('Chat') . ' (<span class="online-count">' . count($items) . '</span>)';
+
+  $theme = check_plain(variable_get('drupalchat_theme', 'light'));
+  $chat['icon'] = theme('image', array('path' => drupal_get_path('module', 'drupalchat') . '/themes/' . $theme . '/images/loading.gif', 'width' => NULL, 'height' => NULL, 'alt' => t('chat'), 'attributes' => array('class' => 'icon')));
+
+  return theme('drupalchat_subpanel', array('subpanel' => $chat));
+}
+
+/**
+ * Implements hook_menu().
+ */
+function drupalchat_menu() {
+
+    // Administration pages.
+    $items['admin/config/drupalchat'] = array(
+        'title' => 'DrupalChat',
+        'description' => 'Administer DrupalChat.',
+        'position' => 'left',
+        'weight' => -10,
+        'page callback' => 'system_admin_menu_block_page',
+        'access arguments' => array('access administration pages'),
+        'file' => 'system.admin.inc',
+		'file path' => drupal_get_path('module', 'system'),
+    );
+
+
+
+    $items['admin/config/drupalchat/configuration'] = array(
+        'title' => 'Configure',
+        'description' => 'Configure DrupalChat module.',
+        'page callback' => 'drupal_get_form',
+        'access arguments' => array('administer drupalchat'),
+        'page arguments' => array('drupalchat_settings_form'),
+        'file' => 'drupalchat.admin.inc',
+        'weight' => 10,
+    );
+
+    $items['admin/config/drupalchat/configuration/module-settings'] = array(
+      'title' => 'Module Settings',
+      'description' => 'iFlyChat Module Settings',
+      'type' => MENU_DEFAULT_LOCAL_TASK,
+      'weight' => 11
+    );
+
+    $items['admin/config/drupalchat/configuration/app-settings'] = array(
+      'title' => 'App Settings',
+      'description' => 'iFlyChat App Settings',
+      'type' => MENU_LOCAL_TASK,
+      'page callback' => 'drupalchat_app_settings',
+      'access arguments' => array('administer drupalchat'),
+      'file' => 'drupalchat.admin.inc',
+      'weight' => 12
+    );
+
+  /*$items['admin/config/drupalchat'] = array(
+    	'title' => 'DrupalChat',
+    	'description' => 'Administer DrupalChat',
+    	'page callback' => 'drupal_get_form',
+    	'page arguments' => array('drupalchat_settings_form'),
+    	'access arguments' => array('administer drupalchat'),
+    	'file' => 'drupalchat.admin.inc',
+    );*/
+    $items['drupalchat/mobile-auth'] = array(
+        'page callback' => 'drupalchat_mobile_auth',
+        'access arguments' => array('access content'),
+        'file' => 'drupalchat.mobileauth.inc',
+    );
+  $items['drupalchat/poll'] = array(
+		'page callback' => 'drupalchat_poll',
+		'access arguments' => array('access drupalchat'),
+		'type' => MENU_CALLBACK,
+	);
+  $items['drupalchat/send'] = array(
+		'page callback' => 'drupalchat_send',
+		'access arguments' => array('access drupalchat'),
+		'type' => MENU_CALLBACK,
+	);
+  $items['drupalchat/status'] = array(
+    'page callback' => 'drupalchat_status',
+    'access arguments' => array('access drupalchat'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['drupalchat/channel/add'] = array(
+    'page callback' => 'drupalchat_channel_add',
+    'access arguments' => array('access drupalchat'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['drupalchat/auth'] = array(
+		'page callback' => 'drupalchat_ex_auth',
+		'access arguments' => array('access drupalchat'),
+		'type' => MENU_CALLBACK,
+	);
+  $items['drupalchat/ur-autocomplete'] = array(
+    'page callback' => '_drupalchat_ur_autocomplete',
+    'access arguments' => array('access drupalchat'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['drupalchat/user-autocomplete'] = array(
+    'page callback' => '_drupalchat_ur_autocomplete',
+    'access arguments' => array('access drupalchat'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['drupalchat/messages'] = array(
+    'title' => 'Chat Messages',
+    'type' => MENU_NORMAL_ITEM,
+    'page callback' => 'drupalchat_get_messages',
+	'access arguments' => array('access drupalchat own logs'),
+  );
+
+  $items['drupalchat/messages/inbox'] = array(
+    'title' => 'Inbox',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+
+  $items['drupalchat/messages/message/%drupalchatmsgid'] = array(
+    'title' => 'View Message',
+    'type' => MENU_LOCAL_TASK,
+	'page callback' => 'drupalchat_get_messages_specific',
+	'access arguments' => array('access drupalchat own logs'),
+	'page arguments' => array(3),
+  );
+  $items['drupalchat/send-offline-message'] = array(
+	'page callback' => 'drupalchat_send_offline_message',
+	'access arguments' => array('access drupalchat'),
+	'type' => MENU_CALLBACK,
+  );
+  $items['drupalchat/change-guest-name'] = array(
+    'page callback' => 'drupalchat_change_guest_name',
+    'access arguments' => array('access drupalchat'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['drupalchat/mobile-chat'] = array(
+    'page callback' => 'drupalchat_mobile_chat',
+    'access arguments' => array('access drupalchat'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['drupalchat/thread-history'] = array(
+		'page callback' => 'drupalchat_get_thread_history',
+		'access arguments' => array('access drupalchat'),
+		'type' => MENU_CALLBACK,
+	);
+
+  return $items;
+}
+
+
+
+function drupalchatmsgid_to_arg($arg) {
+  if ($arg == '%') {
+    return 'none';
+  }
+  else {
+    return $arg;
+  }
+}
+
+/**
+ * Implements autocomplete feature for UR Integration.
+ */
+function _drupalchat_ur_autocomplete($string) {
+  $array = drupal_explode_tags($string);
+  // Fetch last value
+  $last_string =  drupal_strtolower(array_pop($array));
+  $matches = array();
+  $query = db_select('user_relationship_types', 'u');
+  // Select rows that match the string
+  $return = $query
+    ->fields('u', array('name'))
+    ->condition('u.name', '%' . db_like($last_string) . '%', 'LIKE')
+    ->range(0, 10)
+    ->execute();
+  $prefix = count($array) ? drupal_implode_tags($array) . ', ' : '';
+  // add matches to $matches
+  foreach ($return as $row) {
+    if(!in_array($row->name, $array))
+	  $matches[$prefix . $row->name] = check_plain($row->name);
+  }
+
+  // return for JS
+  drupal_json_output($matches);
+}
+
+/**
+ * Implements hook_cron().
+ */
+function drupalchat_cron() {
+  if(check_plain(variable_get('drupalchat_log_messages', 1)) != 1) {
+    db_delete('drupalchat_msg')
+      ->condition('timestamp', (time() - 10), '<')
+      ->execute();
+    db_delete('drupalchat_users')
+      ->condition('timestamp', (time() - 10), '<')
+      ->execute();
+  }
+  if(check_plain(variable_get('drupalchat_polling_method', DRUPALCHAT_AJAX)) == DRUPALCHAT_COMMERCIAL) {
+    db_delete('drupalchat_users')
+      ->condition('timestamp', (time() - (60*60*24*14)), '<')
+      ->execute();
+  }
+}
+
+/**
+ * Implements hook_user_login().
+ */
+function drupalchat_user_login(&$edit, $account) {
+  setcookie("DRUPALCHAT_NEWLOGIN", 1, time()+120, '/');
+  if(check_plain(variable_get('drupalchat_polling_method', DRUPALCHAT_AJAX)) == DRUPALCHAT_COMMERCIAL) {
+    setcookie("iflychat_key", "", time()-3600, "/");
+    setcookie("iflychat_css", "", time()-3600, "/");
+    setcookie("iflychat_time", "", time()-3600, "/");
+  }
+  // TODO Please review the conversion of this statement to the D7 database API syntax.
+  /* db_query('DELETE FROM {drupalchat_msg} WHERE uid1 = uid2 AND uid1 = %d', $account->uid) */
+  db_delete('drupalchat_msg')
+  ->where('uid1 = uid2')
+  ->condition('uid1', $account->uid)
+  ->execute();
+}
+
+/**
+ * Implements hook_user().
+ */
+function drupalchat_user_OLD($op, &$edit, &$account, $category = NULL) { }
+
+
+
+/**
+ * @todo Please document this function.
+ * @see http://drupal.org/node/1354
+ */
+
+function drupalchat_init() {
+  global $user, $base_url;
+  $user_data = false;
+  //print_r(variable_get('drupalchat_external_api_key'));
+  //print_r(variable_get('drupalchat_app_id'));
+  if(check_plain(variable_get('drupalchat_polling_method')) == DRUPALCHAT_COMMERCIAL){
+    if(user_access('access drupalchat')){
+      $iflychat_auth_url = url('drupalchat/auth', array('query' => array('t' => time(),),));
+      if(user_is_logged_in()) {
+        $user_data = json_encode(_drupalchat_get_user_details());
+      }
+      if(check_plain(variable_get('drupalchat_session_caching','1')) == '1' && isset($_SESSION['user_data']) && $_SESSION['user_data'] == $user_data){
+        if(isset($_SESSION['token']) && !empty($_SESSION['token'])){
+          drupal_add_js('var iflychat_auth_token = "'. $_SESSION['token'].'";', array('type' => 'inline', 'scope' => 'footer'));
+        }
+      }
+      if(user_is_logged_in()){
+        drupal_add_js('var iflychat_auth_url = "'.$iflychat_auth_url.'";', array('type' => 'inline', 'scope' => 'footer'));
+      }
+      if(drupalchat_verify_access()){
+        drupal_add_js('var drupalchat_popup=document.createElement("DIV"); drupalchat_popup.className="iflychat-popup";document.body.appendChild(drupalchat_popup);', array('type' => 'inline', 'scope' => 'footer'));
+      }
+      $iflychat_api_key = check_plain(variable_get('drupalchat_external_api_key', NULL));
+      $iflychat_app_id = check_plain(variable_get('drupalchat_app_id', NULL));
+      if(!empty($iflychat_api_key) && !empty($iflychat_app_id)){
+        drupal_add_js('var drupalchat_bundle = document.createElement("SCRIPT"); drupalchat_bundle.src = "//'.DRUPALCHAT_EXTERNAL_CDN_HOST.'/js/iflychat-v2.min.js?app_id=' . variable_get('drupalchat_app_id') . '"'. '; drupalchat_bundle.async = "async";document.body.appendChild(drupalchat_bundle)', array('type' => 'inline', 'scope' => 'footer'));
+      }
+    }
+  }else if(drupalchat_verify_access()) {
+    if(check_plain(variable_get('drupalchat_polling_method', DRUPALCHAT_AJAX)) != DRUPALCHAT_COMMERCIAL) {
+      if($user->uid > 0) {
+        $account = user_load($user->uid);
+        $user_name = check_plain(format_username($account));
+        $status = db_query('SELECT status FROM {drupalchat_users} WHERE uid = :uid', array(':uid' => $user->uid))->fetchField();
+        if (!$status) {
+          $status = DRUPALCHAT_USER_ONLINE;
+          $current_user = (object) array(
+            'uid' => $user->uid,
+            'session' => $user->sid,
+            'name' => $user_name,
+            'status' => $status,
+            'timestamp' => time(),
+          );
+          drupal_write_record('drupalchat_users', $current_user);
+        }
+        else {
+          db_update('drupalchat_users')
+            ->fields(array(
+              'timestamp' => time(),
+              'status' => ($status == DRUPALCHAT_USER_OFFLINE ? DRUPALCHAT_USER_ONLINE : $status),
+            ))
+           ->condition('uid', $user->uid)
+           ->execute();
+        }
+      }
+      else {
+        //print_r('guest');
+        $sid = _drupalchat_get_sid();
+        if(!$sid || $sid == -1) {
+          return;
+        }
+        else {
+          $user_name = check_plain(check_plain(variable_get('drupalchat_anon_prefix', 'Guest')) . time());
+          $status = db_query('SELECT status FROM {drupalchat_users} WHERE uid = :uid AND session = :sid', array(':uid' => $user->uid, ':sid' => $sid,))->fetchField();
+          if(!$status) {
+            $status = DRUPALCHAT_USER_ONLINE;
+            if(variable_get('drupalchat_anon_use_name', 1) == 1) {
+                $user_name = check_plain(variable_get('drupalchat_anon_prefix', 'Guest'))  . ' ' . drupalchat_get_random_name();
+            }
+            $current_user = (object) array(
+              'uid' => $user->uid,
+              'session' => $sid,
+              'name' => $user_name,
+              'status' => $status,
+              'timestamp' => time(),
+            );
+            drupal_write_record('drupalchat_users', $current_user);
+          }
+          else {
+            db_update('drupalchat_users')
+              ->fields(array(
+                'timestamp' => time(),
+                'status' => ($status == DRUPALCHAT_USER_OFFLINE ? DRUPALCHAT_USER_ONLINE : $status),
+              ))
+              ->condition('uid', $user->uid)
+              ->condition('session', $sid)
+              ->execute();
+          }
+        }
+      }
+    }
+    $theme = check_plain(variable_get('drupalchat_theme', 'light'));
+
+    $polling_method = check_plain(variable_get('drupalchat_polling_method', DRUPALCHAT_AJAX));
+    if(!$user->uid && (check_plain(variable_get('drupalchat_polling_method', DRUPALCHAT_AJAX)) != DRUPALCHAT_COMMERCIAL)) {
+    $a_name = db_query('SELECT name FROM {drupalchat_users} WHERE uid = :uid AND session = :sid', array(':uid' => $user->uid, ':sid' => $sid,))->fetchField();
+    }
+    $my_settings = array(
+      'current_timestamp' => time(),
+      'polling_method' => $polling_method,
+      'pollUrl' => url('drupalchat/poll', array('absolute' => TRUE)),
+      'sendUrl' => url('drupalchat/send', array('absolute' => TRUE)),
+      'formId' => 'drupalchat_send',
+      'formToken' => drupal_get_token('drupalchat_send'),
+      'statusUrl' => url('drupalchat/status', array('absolute' => TRUE)),
+      'status' => $status,
+      'goOnline' => t('Go Online'),
+      'goIdle' => t('Go Idle'),
+      'newMessage' => t('New chat message!'),
+      'images' => $base_url . '/' . drupal_get_path('module', 'drupalchat') . '/themes/' . $theme . '/images/',
+      'sound' => base_path() . drupal_get_path('module', 'drupalchat') . '/swf/sound.swf',
+      'soundFile' => base_path() . drupal_get_path('module', 'drupalchat') . '/wav/notification.mp3',
+      'noUsers' => theme('item_list', array('items' => array(0 => array('data' => t('No users online'), 'class' => array('drupalchatnousers'),)),)),
+      'smileyURL' => base_path() . drupal_get_path('module', 'drupalchat') . '/smileys/very_emotional_emoticons-png/png-32x32/',
+      'addUrl' => url('drupalchat/channel/add', array('absolute' => TRUE)),
+      'notificationSound' => check_plain(variable_get('drupalchat_notification_sound', 1)),
+      'exurl' => url('drupalchat/auth', array('query' => array('t' => time(),),)),
+      'soffurl' => url('drupalchat/send-offline-message'),
+      'chat_type' => check_plain(variable_get('drupalchat_show_admin_list', 2)),
+      'guestPrefix' => check_plain(variable_get('drupalchat_anon_prefix', 'Guest')) . " ",
+      'changeurl' => url('drupalchat/change-guest-name', array('query' => array('t' => time(),),)),
+      'allowSmileys' => check_plain(variable_get('drupalchat_enable_smiley', 1)),
+    );
+    //print_r($my_settings);
+    if($polling_method == DRUPALCHAT_AJAX) {
+      $my_settings['refresh_rate'] = check_plain(variable_get('drupalchat_refresh_rate', 2));
+    }
+    if($polling_method != DRUPALCHAT_COMMERCIAL) {
+      $my_settings['username'] = ($user->uid)?$user_name:$a_name;
+      $my_settings['uid'] = ($user->uid)?$user->uid:'0-'._drupalchat_get_sid();
+      $my_settings['threadHistoryUrl'] = url('drupalchat/thread-history', array('absolute' => TRUE));
+    }
+  $my_settings['iup'] = check_plain(variable_get('drupalchat_user_picture', 1));
+  if(check_plain(variable_get('drupalchat_user_picture', 1)) == 1) {
+    if($polling_method != DRUPALCHAT_COMMERCIAL) {
+      $my_settings['up'] = drupalchat_return_pic_url();
+    }
+    $my_settings['default_up'] = $base_url . '/' . drupal_get_path('module', 'drupalchat') . '/themes/' . $theme . '/images/default_avatar.png';
+    $my_settings['default_cr'] = $base_url . '/' . drupal_get_path('module', 'drupalchat') . '/themes/' . $theme . '/images/default_room.png';
+    $my_settings['default_team'] = $base_url . '/' . drupal_get_path('module', 'drupalchat') . '/themes/' . $theme . '/images/default_team.png';
+    }
+
+  /*if ((variable_get('drupalchat_yui_use_cdn', 1) == 2)) {
+      drupal_add_js(drupalchat_yui_path() . '/yui-min.js');
+    }
+    else {
+      drupal_add_js('http://yui.yahooapis.com/3.5.0/build/yui/yui-min.js','external');
+    }*/
+  //drupal_add_js(drupal_get_path('module', 'drupalchat') . '/js/jquery.json-2.3.min.js');
+    //drupal_add_js(drupal_get_path('module', 'drupalchat') . '/js/drupalchat-jstorage.js');
+  //drupal_add_js(drupal_get_path('module', 'drupalchat') . '/js/storage-lite.js');
+    //drupal_add_js(drupal_get_path('module', 'drupalchat') . '/js/jquery.titlealert.min.js');
+    if($polling_method != DRUPALCHAT_COMMERCIAL) {
+      drupal_add_js(drupal_get_path('module', 'drupalchat') . '/js/jquery.titlealert.min.js');
+      drupal_add_js(drupal_get_path('module', 'drupalchat') . '/js/ba-emotify.js');
+      drupal_add_js(drupal_get_path('module', 'drupalchat') . '/js/swfobject.js');
+      drupal_add_css(drupal_get_path('module', 'drupalchat') . '/themes/' . $theme . '/' . $theme . '.css');
+      drupal_add_js(drupal_get_path('module', 'drupalchat') . '/js/drupalchat-jstorage.js');
+      drupal_add_js(drupal_get_path('module', 'drupalchat') . '/js/drupalchat.js');
+    }
+
+  drupal_add_js(array('drupalchat' => $my_settings), array('type' => 'setting'));
+
+  } // end of drupalchat_verify_access condition
+} // end of drupalchat_init
+
+
+
+
+function drupalchat_channel_add() {
+  global $user;
+  if (check_plain(variable_get('drupalchat_polling_method', DRUPALCHAT_AJAX)) == DRUPALCHAT_NODEJS && $user->uid!=0) {
+      echo nodejs_add_user_to_channel($user->uid, 'drupalchat_' . $user->uid);
+      $message['uid'] = $user->uid;
+      $message['name'] = $user->name;
+      $drupalchat_nodejs_message = (object) array(
+    'channel' => 'drupalchat_' . $user->uid,
+    'broadcast' => FALSE,
+    'type' => 'sendName',
+    'callback' => 'drupalchatNodejsMessageHandler',
+    'data' => drupal_json_encode($message),
+  );
+  echo $user->name;
+      nodejs_enqueue_message($drupalchat_nodejs_message);
+    }
+}
+function _drupalchat_touch_user($uid) {
+  db_update('drupalchat_users')
+  ->fields(array(
+    'timestamp' => time(),
+  ))
+  ->condition('uid', $uid)
+  ->condition('session', _drupalchat_get_sid())
+  ->execute();
+}
+
+/**
+ * Send messages via ajax
+ */
+function drupalchat_send() {
+  global $user;
+
+  $formToken = check_plain($_POST['form_token']);
+  $formID = check_plain($_POST['form_id']);
+  $form_token = !empty($formToken) ? $formToken : '';
+  $form_id = !empty($formID) ? $formID  : '';
+  if (!drupal_valid_token($form_token, $form_id)) {
+    return;
+  }
+  $message = (object) array(
+      'message_id' => check_plain($_POST['drupalchat_message_id']),
+      'uid1' => ($user->uid)?$user->uid:'0-'._drupalchat_get_sid(),
+      'uid2' => check_plain($_POST['drupalchat_uid2']),
+      'message' => $_POST['drupalchat_message'],
+      'timestamp' => time(),
+  );
+  drupal_write_record('drupalchat_msg', $message);
+  foreach (module_implements('drupalchat_send') as $module) {
+      $function = $module . '_drupalchat_send';
+      $function($message);
+    }
+  drupal_json_output(array());
+}
+
+/**
+ * Alter status via ajax
+ */
+function drupalchat_status() {
+  global $user;
+  // TODO Please review the conversion of this statement to the D7 database API syntax.
+  /* db_query("UPDATE {drupalchat_users} SET status = %d WHERE uid = %d", check_plain($_POST['status']), $user->uid) */
+  if($user->uid > 0) {
+    db_update('drupalchat_users')
+      ->fields(array(
+        'status' => check_plain($_POST['status']),
+      ))
+      ->condition('uid', $user->uid)
+      ->execute();
+  }
+  else {
+    db_update('drupalchat_users')
+      ->fields(array(
+        'status' => check_plain($_POST['status']),
+      ))
+      ->condition('uid', $user->uid)
+	  ->condition('session', _drupalchat_get_sid())
+      ->execute();
+  }
+  drupal_json_output(array());
+}
+
+/**
+ * Process and get messages
+ */
+function drupalchat_poll() {
+  global $user;
+
+
+  $initial_time = time();
+  $message_count = 0;
+
+
+  /*if (isset($_GET['drupalchat_last_timestamp'])) {
+    $last_timestamp = check_plain($_GET['drupalchat_last_timestamp']);
+  }*/
+  if ($_GET['drupalchat_last_timestamp'] > 0) {
+    $last_timestamp = check_plain($_GET['drupalchat_last_timestamp']);
+  }
+  else {
+    $last_timestamp = $initial_time;
+      //$last_timestamp = 1;
+  }
+
+  $buddylist = _drupalchat_buddylist($user->uid);
+  $buddylist_online_old = _drupalchat_buddylist_online($buddylist);
+
+
+
+  $polling_method = check_plain(variable_get('drupalchat_polling_method', DRUPALCHAT_AJAX));
+
+  //echo $polling_method;
+  //die;
+
+  $json['messages'] = array();
+
+  if ($polling_method == DRUPALCHAT_AJAX) {
+    /*$messages = db_query('SELECT u.name, m.uid1, m.uid2, m.message, m.timestamp FROM {drupalchat_msg} m INNER JOIN {users} u ON m.uid1 = u.uid WHERE m.uid2 = :uid2 AND m.timestamp > :timestamp ORDER BY m.timestamp ASC', array(':uid2' => $user->uid, ':timestamp' => $last_timestamp));
+    foreach ($messages as $message) {
+	  $account = user_load($message->uid1);
+	  $json['messages'][] = array('message' => $message->message, 'timestamp' => date("H:i", $message->timestamp), 'uid1' => $message->uid1, 'name' => check_plain(format_username($account)));
+      if ($message->timestamp > $last_timestamp) {
+        $last_timestamp = $message->timestamp;
+      }
+    }*/
+
+
+    //echo 'SELECT u.name, m.uid1, m.uid2, m.message, m.timestamp FROM {drupalchat_msg} m INNER JOIN {users} u ON m.uid1 = u.uid WHERE m.uid2 = '.$user->uid.' AND m.timestamp > '.$last_timestamp.' ORDER BY m.timestamp ASC';
+
+    _drupalchat_touch_user($user->uid);
+    module_invoke_all('drupalchat_ajaxpoll'); // AJAX poll hook
+  }
+  elseif ($polling_method == DRUPALCHAT_LONGPOLL) {
+    do {
+      sleep(3);
+	  /*watchdog('drupalchat', '%a - %b - OLD - %c - CURRENT %e - %d', array('%a' => $user->uid, '%b' => time(), '%b' => time(), '%c' => print_r($buddylist_online_old,true), '%d' => print_r(_drupalchat_buddylist_diff($buddylist_online_old, $buddylist_online),true), '%e' => print_r($buddylist_online,true)), WATCHDOG_DEBUG);*/
+      $buddylist_online = _drupalchat_buddylist_online($buddylist);
+      //$message_count = db_query('SELECT COUNT(*) FROM {drupalchat_msg} m INNER JOIN {users} u ON m.uid1 = u.uid WHERE m.uid2 = :m.uid2 AND m.timestamp > :m.timestamp', array(':m.uid2' => $user->uid, ':m.timestamp' => $last_timestamp))->fetchField();
+      if($user->uid > 0) {
+	    $message_count = db_query(' SELECT COUNT(*)
+                                    FROM {drupalchat_msg} m
+                                    WHERE (m.uid2 IN (:uid2,\'c-0\') OR m.uid1 = :uid2)
+                                    AND m.timestamp > :timestamp', array(':uid2' => $user->uid, ':timestamp' => $last_timestamp))->fetchField();
+      }
+	  else {
+	    $message_count = db_query(' SELECT COUNT(*)
+                                    FROM {drupalchat_msg} m
+                                    WHERE (m.uid2 IN (:uid2,\'c-0\') OR m.uid1 = :uid2)
+                                    AND m.timestamp > :timestamp', array(':uid2' => '0-'._drupalchat_get_sid(), ':timestamp' => $last_timestamp))->fetchField();
+	  }
+	  _drupalchat_touch_user($user->uid);
+      module_invoke_all('drupalchat_longpoll'); // Long poll hook
+    } while (((time() - $initial_time) < (ini_get('max_execution_time') - 5)) && ($message_count == 0) && (_drupalchat_buddylist_diff($buddylist_online_old, $buddylist_online)));
+  }
+  if (($message_count > 0) || ($polling_method == DRUPALCHAT_AJAX)) {
+    if($user->uid > 0) {
+      $messages = db_query('SELECT m.message_id, m.uid1, m.uid2, m.message, m.timestamp FROM {drupalchat_msg} m WHERE (m.uid2 IN (:uid2,\'c-0\') OR m.uid1 = :uid2) AND m.timestamp > :timestamp ORDER BY m.timestamp ASC', array(':uid2' => $user->uid, ':timestamp' => $last_timestamp));
+    }
+	else {
+	  $messages = db_query('SELECT m.message_id, m.uid1, m.uid2, m.message, m.timestamp FROM {drupalchat_msg} m WHERE (m.uid2 IN (:uid2,\'c-0\') OR m.uid1 = :uid2) AND m.timestamp > :timestamp ORDER BY m.timestamp ASC', array(':uid2' => '0-'._drupalchat_get_sid(), ':timestamp' => $last_timestamp));
+	}
+    //while ($message = db_fetch_object($messages)) {
+    // Drupal 7
+    foreach ($messages as $message) {
+	  //$arr = explode("-", $message->uid1, 2);
+	  if(((!strpos($message->uid1,'-')) && ($message->uid1 != $user->uid)) || ((strpos($message->uid1,'-')) && ($message->uid1 != '0-'._drupalchat_get_sid()))) {
+	    if(!strpos($message->uid1,'-')) {
+	      $account = user_load($message->uid1);
+		  $temp_msg = array('message' => check_plain($message->message), 'timestamp' => date("H:i", $message->timestamp), 'uid1' => $message->uid1, 'name' => check_plain(format_username($account)), 'uid2' => $message->uid2, 'message_id' => check_plain($message->message_id),);
+		  if(check_plain(variable_get('drupalchat_user_picture', 1)) == 1) {
+			$temp_msg['p'] = drupalchat_return_pic_url_any_user($account);
+		  }
+		  $json['messages'][] = $temp_msg;
+	    }
+	    else {
+	      $arr = explode("-", $message->uid1, 2);
+		  $sid = $arr[1];
+	      $name = db_query('SELECT name FROM {drupalchat_users} WHERE uid = :uid AND session = :sid', array(':uid' => '0', ':sid' => $sid))->fetchField();
+	      $temp_msg = array('message' => check_plain($message->message), 'timestamp' => date("H:i", $message->timestamp), 'uid1' => $message->uid1, 'name' => $name, 'uid2' => $message->uid2, 'message_id' => check_plain($message->message_id),);
+		  if(check_plain(variable_get('drupalchat_user_picture', 1)) == 1) {
+			$temp_msg['p'] = drupalchat_return_pic_url_any_user(user_load('0'));
+		  }
+		  $json['messages'][] = $temp_msg;
+	    }
+	  }
+	  else {
+	    if(!strpos($message->uid2,'-')) {
+	      $account = user_load($message->uid2);
+		  $temp_msg = array('message' => check_plain($message->message), 'timestamp' => date("H:i", $message->timestamp), 'uid1' => $message->uid1, 'name' => check_plain(format_username($account)), 'uid2' => $message->uid2, 'message_id' => check_plain($message->message_id),);
+		  if(check_plain(variable_get('drupalchat_user_picture', 1)) == 1) {
+			$temp_msg['p'] = drupalchat_return_pic_url_any_user($account);
+		  }
+		  $json['messages'][] = $temp_msg;
+	    }
+	    else {
+	      $arr = explode("-", $message->uid2, 2);
+		  $sid = $arr[1];
+	      $name = db_query('SELECT name FROM {drupalchat_users} WHERE uid = :uid AND session = :sid', array(':uid' => '0', ':sid' => $sid))->fetchField();
+	      $temp_msg = array('message' => check_plain($message->message), 'timestamp' => date("H:i", $message->timestamp), 'uid1' => $message->uid1, 'name' => $name, 'uid2' => $message->uid2, 'message_id' => check_plain($message->message_id),);
+		  if(check_plain(variable_get('drupalchat_user_picture', 1)) == 1) {
+			$temp_msg['p'] = drupalchat_return_pic_url_any_user(user_load('0'));
+		  }
+		  $json['messages'][] = $temp_msg;
+	    }
+	  }
+	  //if($message->
+      if ($message->timestamp > $last_timestamp) {
+        $last_timestamp = $message->timestamp;
+      }
+    }
+  }
+  $json['status'] = 0;
+  $json['total_messages'] = $message_count;
+  $json['last_timestamp'] = $last_timestamp;
+  $json['buddylist'] = isset($buddylist_online) ? $buddylist_online : $buddylist_online_old;
+
+
+  /*echo '<pre>';
+  print_r($json);
+  echo '</pre>';*/
+  drupal_json_output($json);
+}
+
+function _drupalchat_get_buddylist($uid, $drupalchat_ur_name = NULL) {
+  $final_list = array();
+  $drupalchat_rel = check_plain(variable_get('drupalchat_rel', DRUPALCHAT_REL_AUTH));
+  if($drupalchat_ur_name == NULL) {
+    $drupalchat_ur_name = check_plain(variable_get('drupalchat_ur_name', 'friend'));
+  }
+  if ($drupalchat_rel == DRUPALCHAT_REL_UR && function_exists('user_relationships_type_load') && function_exists('user_relationships_load')) {
+	$r_names = drupal_explode_tags($drupalchat_ur_name);
+    foreach($r_names as $r_name) {
+      $comp_r_name = user_relationships_type_load(array('name' => $r_name), TRUE);
+      $final_list[$comp_r_name->rtid]['name'] = $comp_r_name->name;
+      $final_list[$comp_r_name->rtid]['plural'] = $comp_r_name->plural_name;
+      $relationships = user_relationships_load(array('rtid' => $comp_r_name->rtid, 'user' => $uid, 'approved' => 1), array(), TRUE);
+      foreach ($relationships as $rid => $relationship) {
+        $uid == $relationship->requester_id ? $final_list[$comp_r_name->rtid]['valid_uids'][] = $relationship->requestee_id : $final_list[$comp_r_name->rtid]['valid_uids'][] = $relationship->requester_id;
+      }
+    }
+  }
+  else if ($drupalchat_rel == DRUPALCHAT_REL_FF){
+    $fid = '1';
+    $final_list[$fid]['name'] = 'friend';
+    $final_list[$fid]['plural'] = 'friends';
+    $result = db_query("SELECT * FROM {flag_friend} WHERE uid = :uid OR friend_uid = :uid", array(':uid' => $uid, ':friend_uid' => $uid));
+    foreach ($result as $friend) {
+      ($uid == $friend->uid) ? $final_list[$fid]['valid_uids'][] = $friend->friend_uid : $final_list[$fid]['valid_uids'][] = $friend->uid;
+    }
+  }
+  return $final_list;
+}
+
+function _drupalchat_buddylist($uid) {
+  $users = array();
+  $drupalchat_rel = check_plain(variable_get('drupalchat_rel', DRUPALCHAT_REL_AUTH));
+  if ($drupalchat_rel == DRUPALCHAT_REL_UR && function_exists('user_relationships_load')) {
+	$relationships = user_relationships_load(array('name' => drupal_explode_tags(check_plain(variable_get('drupalchat_ur_name', 'friend'))), 'user' => $uid, 'approved' => 1), array(), TRUE);
+    foreach ($relationships as $rid => $relationship) {
+      $uid == $relationship->requester_id ? $users[] = $relationship->requestee_id : $users[] = $relationship->requester_id;
+    }
+  }
+  elseif ($drupalchat_rel == DRUPALCHAT_REL_FF) {
+    $result = db_query("SELECT * FROM {flag_friend} WHERE uid = :uid OR friend_uid = :uid", array(':uid' => $uid, ':friend_uid' => $uid));
+
+    foreach ($result as $friend) {
+      $uid == $friend->uid ? $users[] = $friend->friend_uid : $users[] = $friend->uid;
+    }
+  }
+  return $users;
+}
+
+function _drupalchat_buddylist_online($buddylist) {
+  global $user, $base_url;
+
+  $users = array();
+  if(check_plain(variable_get('drupalchat_enable_chatroom', 1)) == 1) {
+    $users['c-0'] = array('name' => t('Public Chatroom'), 'status' => '1');
+	if(check_plain(variable_get('drupalchat_user_picture', 1)) == 1) {
+	  $users['c-0']['p'] = $base_url . '/' . drupal_get_path('module', 'drupalchat') . '/themes/' . check_plain(variable_get('drupalchat_theme', 'light')) . '/images/default_room.png';
+	}
+  }
+  if (check_plain(variable_get('drupalchat_rel', DRUPALCHAT_REL_AUTH)) > DRUPALCHAT_REL_AUTH) {
+    // Return empty on an empty buddylist
+    if (empty($buddylist)) {
+      $users['total'] = 0;
+      return $users;
+    }
+	$result = db_select('drupalchat_users', 'n')
+      ->fields('n', array('uid', 'name', 'status'))
+      ->condition('timestamp', (time() - check_plain(variable_get('drupalchat_user_latency', 2))), '>=')
+      ->condition('uid', $buddylist, 'IN')
+      ->execute();
+  }
+  else {
+    if($user->uid > 0) {
+	  $result = db_select('drupalchat_users', 'n')
+	    ->fields('n', array('uid', 'name', 'status', 'session'))
+        ->condition('timestamp', (time() - check_plain(variable_get('drupalchat_user_latency', 2))), '>=')
+        ->condition('uid', $user->uid, '<>')
+        ->execute();
+	}
+	else {
+	  $result = db_select('drupalchat_users', 'n')
+	    ->fields('n', array('uid', 'name', 'status', 'session'))
+        ->condition('timestamp', (time() - check_plain(variable_get('drupalchat_user_latency', 2))), '>=')
+        ->condition('session', _drupalchat_get_sid(), '<>')
+        ->execute();
+	}
+  }
+  foreach ($result as $buddy) {
+    if($buddy->uid > 0) {
+	  $account = user_load($buddy->uid);
+	  $users[$buddy->uid] = array('name' => check_plain(format_username($account)), 'status' => $buddy->status);
+	  if(check_plain(variable_get('drupalchat_user_picture', 1)) == 1) {
+	    $users[$buddy->uid]['p'] = drupalchat_return_pic_url_any_user(user_load($buddy->uid));
+	  }
+	}
+	else {
+	  $users[$buddy->uid . '-' . $buddy->session] = array('name' => check_plain($buddy->name), 'status' => $buddy->status);
+	  if(check_plain(variable_get('drupalchat_user_picture', 1)) == 1) {
+	    $users[$buddy->uid . '-' . $buddy->session]['p'] = drupalchat_return_pic_url_any_user(user_load('0'));
+	  }
+	}
+  }
+  $users['total'] = count($users);
+  if(check_plain(variable_get('drupalchat_enable_chatroom', 1)) == 1) {
+    $users['total']--;
+  }
+  return $users;
+}
+
+function _drupalchat_buddylist_diff($ar1, $ar2) {
+  if ($ar1['total'] != $ar2['total']) {
+    return FALSE;
+  }
+
+  foreach ($ar1 as $key => $value) {
+    if (!isset($ar2[$key])) {
+      return FALSE;
+    }
+    if ($value['status'] != $ar2[$key]['status']) {
+      return FALSE;
+    }
+  }
+
+  return TRUE;
+}
+/**
+ * @todo Please document this function.
+ * @see http://drupal.org/node/1354
+ */
+function drupalchat_library_path($variable, $match, $filename) {
+  module_load_include('inc', 'drupalchat', 'includes/drupalchat.admin');
+  $path = _drupalchat_autodiscover_path($match, $filename);
+  //echo $path;
+  variable_set($variable, $path);
+  return $path;
+}
+/**
+ * @todo Please document this function.
+ * @see http://drupal.org/node/1354
+ */
+function drupalchat_yui_path($reset = FALSE) {
+  static $path;
+  if (!isset($path) || $reset) {
+    if (!($path = check_plain(variable_get('drupalchat_yui_path', NULL))) || $reset) {
+      $path = drupalchat_library_path('drupalchat_yui_path', '/^yui-min\.js$/i', 'yui-min.js');
+    }
+  }
+
+  return $path;
+}
+
+function _drupalchat_autodiscover_path($match, $filename) {
+  $path = '';
+  //echo $match;
+
+  $files = drupal_system_listing($match, 'libraries', 'basename', 0);
+
+  /*echo '<pre>'; print_r($files); echo '</pre>';
+  die;*/
+  foreach ($files as $key => $value){
+      if (preg_match("/$filename/i", $key)) {
+          /*$path = dirname($value->filename);
+          echo $path;
+          die;*/
+          $path = dirname($value->uri);
+      }
+  }
+
+  /*echo $filename;
+  echo '<pre>'; print_r($files); echo '</pre>';
+  if (isset($files[$filename])) {
+    echo 'ici';
+    $path = dirname($files[$filename]->filename);
+
+  }*/
+  return $path;
+}
+
+function drupalchat_get_messages() {
+  if(!(user_access('access drupalchat own logs') || user_access('access drupalchat all logs'))) {
+    drupal_access_denied();
+  }
+  else {
+    global $user;
+    if(($user->uid > 0) || (_drupalchat_get_sid() != -1)) {
+      $output = '';
+      if (check_plain(variable_get('drupalchat_polling_method', DRUPALCHAT_AJAX)) == DRUPALCHAT_COMMERCIAL) {
+        global $user;
+        if(!isset($_SESSION['drupalchat_switch_user'])) {
+          $_SESSION['drupalchat_switch_user'] = ($user->uid)?$user->uid:'0-'._drupalchat_get_sid();
+        }
+        $data = json_encode(array(
+          'uid' => $_SESSION['drupalchat_switch_user'],
+          'api_key' => check_plain(variable_get('drupalchat_external_api_key', NULL)),));
+        $options = array(
+          'method' => 'POST',
+          'data' => $data,
+          'timeout' => 15,
+          'headers' => array('Content-Type' => 'application/json'),
+        );
+        if(user_access('access drupalchat all logs')) {
+		  $f_o = drupal_get_form('drupalchat_user_entry_form');
+          $output .= drupal_render($f_o);
+        }
+        $result = drupal_http_request(DRUPALCHAT_EXTERNAL_A_HOST . ':' . DRUPALCHAT_EXTERNAL_A_PORT . '/r/', $options);
+        $query = json_decode($result->data);
+      }
+      else {
+        $guid = ($user->uid)?($user->uid):('0-'._drupalchat_get_sid());
+        $query = db_query('SELECT u.name as name, g.uid as uid, g.message as message, g.TIMESTAMP as timestamp
+	                     FROM (
+						   SELECT uid, message, TIMESTAMP
+						     FROM (
+							 (
+							   SELECT m1.uid1 AS uid, m1.timestamp AS TIMESTAMP, m1.message AS message
+							   FROM {drupalchat_msg} m1
+							   INNER JOIN (
+							     SELECT MAX( t1.timestamp ) AS TIMESTAMP, t1.uid1
+								 FROM {drupalchat_msg} t1
+								 WHERE t1.uid2 =  :uid
+								 GROUP BY t1.uid1
+							   ) recent ON recent.timestamp = m1.timestamp
+							   AND recent.uid1 = m1.uid1
+							   ORDER BY TIMESTAMP DESC
+							 )
+							 UNION (
+							   SELECT m1.uid2 AS uid, m1.timestamp AS TIMESTAMP, m1.message AS message
+							   FROM {drupalchat_msg} m1
+							   INNER JOIN (
+							     SELECT MAX( t1.timestamp ) AS TIMESTAMP, t1.uid2
+								 FROM {drupalchat_msg} t1
+								 WHERE t1.uid1 =  :uid
+								 GROUP BY t1.uid2
+							   )recent ON recent.timestamp = m1.timestamp
+							   AND recent.uid2 = m1.uid2
+							   ORDER BY TIMESTAMP DESC
+							 )
+						    ) AS f
+							ORDER BY 3 DESC
+						  ) AS g INNER JOIN {drupalchat_users} u ON
+						  (g.uid = u.uid AND u.uid!= 0) OR (u.uid = 0 AND g.uid = CONCAT(\'0-\', u.session))
+						GROUP BY uid', array(':uid' => $guid));
+    }
+    foreach($query as $record) {
+      $output .= '<div style="display:block;border-bottom: 1px solid #ccc; padding: 10px;"><div style="font-size:130%; display: inline;">' . l($record->name,'drupalchat/messages/message/' . $record->uid) . '</div><div style="float:right;color:#AAA; font-size: 70%;">' . format_date($record->timestamp,'long') . '</div><div style="display: block; padding: 10px;">' . check_plain($record->message) . '</div></div>';
+    }
+    //$output .= '</tbody></table>';
+    //$user_item = user_load($user->uid);
+	//$output .= '<pre>' . print_r($user_item,true) . '</pre>';
+    //$output .= theme('user_picture', array('account' =>$user_item));
+  }
+  return filter_xss($ouput, array('a', 'div'));
+  }
+}
+
+function drupalchat_user_entry_form() {
+  $form['description'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Switch to another user to view his/her chat transcript'),
+  );
+
+  $form['description']['container'] = array(
+    '#type' => 'container',
+    '#attributes' => array('class' => array('container-inline'),),
+  );
+
+  $form['description']['container']['name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Username'),
+    '#autocomplete_path' => 'user/autocomplete',
+  );
+
+  $form['description']['container']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => 'Switch',
+  );
+  return $form;
+}
+
+function drupalchat_user_entry_form_submit($form, &$form_state) {
+  if(user_access('access drupalchat all logs')) {
+    $account = user_load_by_name(check_plain($form_state['values']['name']));
+    $_SESSION['drupalchat_switch_user'] = $account->uid;
+    drupal_goto('drupalchat/messages');
+  }
+  else {
+    drupal_access_denied();
+  }
+}
+
+function drupalchat_get_messages_specific($id = "1") {
+  if(!(user_access('access drupalchat own logs') || user_access('access drupalchat all logs'))) {
+    drupal_access_denied();
+  }
+  else {
+  global $user;
+  if(($user->uid > 0) || (_drupalchat_get_sid() != -1)) {
+    $guid = ($user->uid)?($user->uid):('0-'._drupalchat_get_sid());
+    $output = '';
+	if (check_plain(variable_get('drupalchat_polling_method', DRUPALCHAT_AJAX)) == DRUPALCHAT_COMMERCIAL) {
+	  global $user;
+    if(!isset($_SESSION['drupalchat_switch_user'])) {
+      $_SESSION['drupalchat_switch_user'] = ($user->uid)?$user->uid:'0-'._drupalchat_get_sid();
+    }
+      $data = json_encode(array(
+        'uid1' => $_SESSION['drupalchat_switch_user'],
+		    'uid2' => $id,
+        'api_key' => check_plain(variable_get('drupalchat_external_api_key', NULL)),));
+      $options = array(
+        'method' => 'POST',
+        'data' => $data,
+        'timeout' => 15,
+        'headers' => array('Content-Type' => 'application/json'),
+      );
+
+      $result = drupal_http_request(DRUPALCHAT_EXTERNAL_A_HOST . ':' . DRUPALCHAT_EXTERNAL_A_PORT .  '/q/', $options);
+	    $q = json_decode($result->data);
+    }
+    else {
+      $result = db_select('drupalchat_msg', 'm');
+      $result->innerJoin('drupalchat_users', 'u', '(m.uid1 = u.uid AND u.uid!= 0) OR (u.uid = 0 AND m.uid1 = CONCAT(\'0-\', u.session))');
+	    $result->innerJoin('drupalchat_users', 'v', '(m.uid2 = v.uid AND v.uid!= 0) OR (v.uid = 0 AND m.uid2 = CONCAT(\'0-\', v.session))');
+	    $result->addField('u', 'name', 'from_name');
+	    $result->addField('v', 'name', 'to_name');
+      $result->fields('m', array('uid1', 'uid2', 'message', 'timestamp'));
+      $result->condition(db_or()
+        ->condition(db_and()->condition('uid1', $guid)->condition('uid2',$id))
+        ->condition(db_and()->condition('uid1', $id)->condition('uid2',$guid)));
+      $q = $result->execute();
+	}
+	$oldname = NULL;
+    foreach($q as $record) {
+	  if($oldname == $record->from_name) {
+	    $output .= '<div style="display: block; padding-top: 0%; padding-bottom: 0%;">' . $record->message . '</div>';
+	  }
+	  else {
+        $output .= '<div style="display:block;border-bottom: 1px solid #ccc; padding: 1% 0% 1% 0%;"></div><div style="display:block; padding-top: 1%; padding-bottom: 0%"><div style="font-size:100%; display: inline;"><a href="#">' . $record->from_name . '</a></div><div style="float:right;font-size: 70%;">' . format_date($record->timestamp,'long') . '</div><div style="display: block; padding-top: 1%; padding-bottom: 0%">' . check_plain($record->message) . '</div></div>';
+	  }
+	  $oldname = $record->from_name;
+    }
+    $output .= '';
+  }
+  return filter_xss($ouput, array('a', 'div'));
+  }
+}
+
+function _drupalchat_get_user_details()
+{
+    global $user;
+    $account = user_load($user->uid);
+
+    if (user_access('administer drupalchat')) {
+        $chat_role = "admin";
+    } else if (user_access('moderate drupalchat')) {
+        $chat_role = "moderator";
+    } else {
+        $chat_role = "participant";
+    }
+    
+    $hook_user_name = '';
+    $hook_user_avatar_url = '';
+    $hook_user_profile_url = '';
+    $hook_user_roles = array();
+    drupal_alter('drupalchat_get_username', $hook_user_name, $user->uid);
+    drupal_alter('drupalchat_get_user_avatar_url', $hook_user_avatar_url, $user->uid);
+    drupal_alter('drupalchat_get_user_profile_url', $hook_user_profile_url, $user->uid);
+    drupal_alter('drupalchat_get_user_roles', $hook_user_roles, $user->uid);
+
+    if(!empty($hook_user_name)){
+      $user_name = $hook_user_name;
+    }else{
+      $user_name = check_plain(format_username($account));
+    }
+
+    if(!empty($hook_user_roles)){
+      $role = $hook_user_roles;
+    }else{
+      $role = $user->roles;
+    }
+    $data = array(
+        'user_name' => $user_name,
+        'user_id' => $user->uid,
+        'user_roles' => $role,
+        'chat_role' => $chat_role,
+        'user_status' => '1',
+        'user_list_filter' => 'all',
+    );
+
+    //Added allRoles if role is admin.
+    if ($chat_role == 'admin' || $chat_role == 'moderator') {
+        $data['user_site_roles'] = user_roles();
+    }
+
+    if(!empty($hook_user_avatar_url)){
+      $data['user_avatar_url'] = $hook_user_avatar_url;
+    }else{
+      $data['user_avatar_url'] = drupalchat_return_pic_url();
+    }
+    
+    if(!empty($hook_user_profile_url)){
+      $data['user_profile_url'] = $hook_user_profile_url;
+    }else{
+      $data['user_profile_url'] = drupalchat_return_profile_url();
+    }
+
+    $hook_user_friends = _drupalchat_get_friends($user->uid);
+    $hook_user_groups = array();
+    drupal_alter('drupalchat_get_groups',$hook_user_groups,$user->uid);
+    if (variable_get('drupalchat_rel', DRUPALCHAT_REL_AUTH) == DRUPALCHAT_REL_OG) {
+        $user_groups = _drupalchat_get_groups($user->uid);
+        if (!empty($user_groups)) {
+          $data['user_list_filter'] = 'group';
+          $data['user_groups'] = $user_groups;
+        }
+    } else if (check_plain(variable_get('drupalchat_rel', DRUPALCHAT_REL_AUTH)) > DRUPALCHAT_REL_AUTH) {
+        $data['user_list_filter'] = 'friend';
+        $new_valid_uids = _drupalchat_get_buddylist($user->uid);
+
+        if (!isset($_SESSION['drupalchat_user_roster_list']) || ($_SESSION['drupalchat_user_roster_list'] != $new_valid_uids)) {
+            $data['user_relationships'] = $new_valid_uids;
+            $_SESSION['drupalchat_user_roster_list'] = $new_valid_uids;
+        } else {
+            $data['user_relationships'] = $new_valid_uids;
+        }
+    } else if (!empty($hook_user_friends)) {
+
+      $data['user_list_filter'] = 'friend';
+      $final_list = array();
+      $final_list['1']['name'] = 'friend';
+      $final_list['1']['plural'] = 'friends';
+      $final_list['1']['valid_uids'] = $hook_user_friends;
+      $data['user_relationships'] = $final_list;
+    } else if (!empty($hook_user_groups)){
+        $data['user_list_filter'] = 'group';
+        $data['user_groups'] = $hook_user_groups;
+    }
+    return $data;
+}
+
+
+function _drupalchat_get_auth($formValues)
+{
+    global $user;
+    if (array_key_exists('api_key', $formValues)) {
+        $api_key = $formValues['api_key'];
+    } else {
+        $api_key = check_plain(variable_get('drupalchat_external_api_key', NULL));
+    }
+
+    if (array_key_exists('app_id', $formValues)) {
+        $app_id = $formValues['app_id'];
+    } else {
+        $app_id = check_plain(variable_get('drupalchat_app_id', NULL));
+    }
+    $data = array(
+        'api_key' => $api_key,
+        'app_id' => $app_id,
+        'version' => 'D7-7.2.2'
+    );
+
+    $user_data = _drupalchat_get_user_details();
+    $data = array_merge($data, $user_data);
+    $data = json_encode($data);
+    $_SESSION['user_data'] = json_encode($user_data);
+
+    //print_r($data);
+    $options = array(
+      'method' => 'POST',
+      'data' => $data,
+      'timeout' => 15,
+      'headers' => array('Content-Type' => 'application/json'),
+    );
+
+    $result = drupal_http_request(DRUPALCHAT_EXTERNAL_A_HOST . ':' . DRUPALCHAT_EXTERNAL_A_PORT .  '/api/1.1/token/generate', $options);
+
+    if ($result->code == 200) {
+        $result = drupal_json_decode($result->data);
+        if (user_is_logged_in()) {
+            $_SESSION['token'] = $result['key'];
+        }
+        if (array_key_exists('app_id', $result)) {
+            variable_set('drupalchat_app_id', $result['app_id']);
+        }
+        return $result;
+    } else {
+        return $result;
+    }
+}
+
+function drupalchat_ex_auth()
+{
+  global $user;
+  $json = array();
+  if (user_is_logged_in()) {
+    $json = _drupalchat_get_auth(array());
+    if (gettype($json) == 'object') {
+      if ($json->code != 200) {
+        $error = array(
+          'code' => $json->code,
+          'error' => $json->error
+        );
+        $json = $error;
+      }
+    }
+  }
+  drupal_json_output($json);
+}
+
+function drupalchat_return_pic_url($uid = null) {
+  global $user;
+
+  if(isset($uid)){
+    $u =  user_load($uid);
+  } else {
+    $u = user_load($user->uid);
+  }
+
+  return drupalchat_return_pic_url_any_user($u);
+}
+
+function drupalchat_return_pic_url_any_user($u) {
+  global $base_url;
+  $url = "";
+  $source = strip_tags(theme('user_picture', array('account' => $u)), "<img>");
+  $source = explode('src="', $source);
+  if(isset($source[1])) {
+    $source = explode('"', $source[1]);
+  }
+  else {
+    $source = explode("src='", $source[0]);
+    if(isset($source[1])) {
+      $source = explode("'", $source[1]);
+    }
+    else {
+      $source[0] = $base_url . '/' . drupal_get_path('module', 'drupalchat') . '/themes/' . check_plain(variable_get('drupalchat_theme', 'light')) . '/images/default_avatar.png';
+    }
+  }
+  $url = $source[0];
+  $pos = strpos($url, ':');
+  if($pos !== false) {
+    $url = substr($url, $pos+1);
+  }
+  return $url;
+}
+
+function drupalchat_return_profile_url() {
+  global $user;
+  $link = 'javascript:void(0)';
+  if($user->uid > 0) {
+    $link = url('user/' . $user->uid);
+  }
+  return $link;
+}
+
+function drupalchat_send_offline_message() {
+  if(isset($_POST['drupalchat_m_contact_details']) && isset($_POST['drupalchat_m_message'])) {
+    global $user;
+    $drupalchat_offline_mail = array();
+    $drupalchat_offline_mail['subject'] = 'iFlyChat: Message from Customer';
+    $drupalchat_offline_mail['contact_details'] =  check_plain(variable_get('drupalchat_support_chat_offline_message_contact', 'Contact Details')) . ': ' . check_plain($_POST['drupalchat_m_contact_details']);
+    $drupalchat_offline_mail['message'] = check_plain(variable_get('drupalchat_support_chat_offline_message_label', 'Message')) . ': ' . check_plain($_POST['drupalchat_m_message']);
+    $result = drupal_mail('drupalchat', 'offline-message', check_plain(variable_get('drupalchat_support_chat_offline_message_email', check_plain(variable_get('site_mail', '')))), language_default(), $drupalchat_offline_mail);
+    drupal_json_output(array());
+  }
+  else {
+    drupal_access_denied();
+  }
+}
+
+function drupalchat_mail($key, &$message, $params) {
+  $message['subject'] = $params['subject'];
+  $message['body'][] = $params['contact_details'];
+  $message['body'][] = $params['message'];
+}
+
+
+
+function drupalchat_user_logout($account) {
+  if(check_plain(variable_get('drupalchat_polling_method', DRUPALCHAT_AJAX)) == DRUPALCHAT_COMMERCIAL) {
+    setcookie("iflychat_key", "", time()-3600, "/");
+    setcookie("iflychat_css", "", time()-3600, "/");
+    setcookie("iflychat_time", "", time()-3600, "/");
+  }
+
+  //delete token start
+  $data = json_encode(array(
+    'api_key' => check_plain(variable_get('drupalchat_external_api_key', NULL)),
+  ));
+
+  $options = array(
+    'method' => 'POST',
+    'data' => $data,
+    'timeout' => 15,
+    'headers' => array('Content-Type' => 'application/json'),
+  );
+
+  $result = drupal_http_request('https://api.iflychat.com/api/1.1/token/'. $_SESSION['token'] .'/delete', $options);
+  //delete token end
+  unset($_SESSION['token']);
+  return $result;
+
+}
+
+function drupalchat_mobile_chat() {
+  global $is_https;
+  $data = array('settings' => array());
+  $data['settings']['authUrl'] = url('drupalchat/auth', array('query' => array('t' => time(),),));
+  $data['settings']['host'] = (($is_https)?(DRUPALCHAT_EXTERNAL_A_HOST):(DRUPALCHAT_EXTERNAL_HOST));
+  $data['settings']['port'] = (($is_https)?(DRUPALCHAT_EXTERNAL_A_PORT):(DRUPALCHAT_EXTERNAL_PORT));
+  $data = json_encode($data);
+  $options = array(
+    'method' => 'POST',
+    'data' => $data,
+    'timeout' => 15,
+    'headers' => array('Content-Type' => 'application/json'),
+  );
+
+  $result = drupal_http_request(DRUPALCHAT_EXTERNAL_A_HOST . ':' . DRUPALCHAT_EXTERNAL_A_PORT .  '/m/v1/app', $options);
+  print $result->data;
+  exit;
+}
+/**
+ * Returns the groups to be used for filtering users
+ */
+function _drupalchat_get_groups($uid) {
+
+  $groups = array();
+
+  if(function_exists('og_get_groups_by_user')) {
+    $og_groups = og_get_groups_by_user();
+    if(isset($og_groups['node'])) {
+      $groups = $og_groups['node'];
+    }
+  }
+
+  return $groups;
+}
+
+function drupalchat_get_thread_history() {
+  global $user;
+  $json = array();
+  if(isset($_POST['drupalchat_open_chat_uids'])) {
+    $chat_ids = explode(',', check_plain($_POST['drupalchat_open_chat_uids']));
+
+    $json['messages'] = array();
+    foreach($chat_ids as $chat_id) {
+      $messages = '';
+
+      if($user->uid > 0) {
+        $current_uid = $user->uid;
+      }
+      else {
+        $current_uid = '0-'._drupalchat_get_sid();
+      }
+
+      if($chat_id == 'c-0') {
+        $messages = db_query('SELECT m.message_id, m.uid1, m.uid2, m.message, m.timestamp FROM {drupalchat_msg} m WHERE m.uid2 = \'c-0\' ORDER BY m.timestamp DESC LIMIT 30', array(':uid1' => $current_uid, ':uid2' => $chat_id))->fetchAll();
+      }
+      else {
+        $messages = db_query('SELECT m.message_id, m.uid1, m.uid2, m.message, m.timestamp FROM {drupalchat_msg} m WHERE (m.uid2 = :uid2 AND m.uid1 = :uid1) OR (m.uid2 = :uid1 AND m.uid1 = :uid2) ORDER BY m.timestamp DESC LIMIT 30', array(':uid1' => $current_uid, ':uid2' => $chat_id))->fetchAll();
+      }
+
+      foreach ($messages as $message) {
+      //print_r($message);
+        if((((!strpos($message->uid1,'-')) && ($message->uid1 != $user->uid)) || ((strpos($message->uid1,'-')) && ($message->uid1 != '0-'._drupalchat_get_sid()))) || ($message->uid2 == 'c-0')) {
+          if(!strpos($message->uid1,'-')) {
+            $account = user_load($message->uid1);
+          $temp_msg = array('message' => check_plain($message->message), 'timestamp' => date("H:i", $message->timestamp), 'uid1' => $message->uid1, 'name' => check_plain(format_username($account)), 'uid2' => $message->uid2, 'message_id' => check_plain($message->message_id),);
+          if(check_plain(variable_get('drupalchat_user_picture', 1)) == 1) {
+          $temp_msg['p'] = drupalchat_return_pic_url_any_user($account);
+          }
+          $json['messages'][] = $temp_msg;
+          }
+          else {
+            $arr = explode("-", $message->uid1, 2);
+          $sid = $arr[1];
+            $name = db_query('SELECT name FROM {drupalchat_users} WHERE uid = :uid AND session = :sid', array(':uid' => '0', ':sid' => $sid))->fetchField();
+            $temp_msg = array('message' => check_plain($message->message), 'timestamp' => date("H:i", $message->timestamp), 'uid1' => $message->uid1, 'name' => $name, 'uid2' => $message->uid2, 'message_id' => check_plain($message->message_id),);
+          if(check_plain(variable_get('drupalchat_user_picture', 1)) == 1) {
+          $temp_msg['p'] = drupalchat_return_pic_url_any_user(user_load('0'));
+          }
+          $json['messages'][] = $temp_msg;
+          }
+        }
+        else {
+          if(!strpos($message->uid2,'-')) {
+            $account = user_load($message->uid2);
+          $temp_msg = array('message' => check_plain($message->message), 'timestamp' => date("H:i", $message->timestamp), 'uid1' => $message->uid1, 'name' => check_plain(format_username($account)), 'uid2' => $message->uid2, 'message_id' => check_plain($message->message_id),);
+          if(check_plain(variable_get('drupalchat_user_picture', 1)) == 1) {
+          $temp_msg['p'] = drupalchat_return_pic_url_any_user($account);
+          }
+          $json['messages'][] = $temp_msg;
+          }
+          else {
+            $arr = explode("-", $message->uid2, 2);
+          $sid = $arr[1];
+            $name = db_query('SELECT name FROM {drupalchat_users} WHERE uid = :uid AND session = :sid', array(':uid' => '0', ':sid' => $sid))->fetchField();
+            $temp_msg = array('message' => check_plain($message->message), 'timestamp' => date("H:i", $message->timestamp), 'uid1' => $message->uid1, 'name' => $name, 'uid2' => $message->uid2, 'message_id' => check_plain($message->message_id),);
+          if(check_plain(variable_get('drupalchat_user_picture', 1)) == 1) {
+          $temp_msg['p'] = drupalchat_return_pic_url_any_user(user_load('0'));
+          }
+          $json['messages'][] = $temp_msg;
+          }
+        }
+      }
+    }
+    $json['messages'] = array_reverse($json['messages']);
+  }
+  drupal_json_output($json);
+}
+
+function drupalchat_get_random_name() {
+  $path = drupal_get_path('module', 'drupalchat') . "/guest_names/drupalchat_guest_random_names.txt";
+  $f_contents = file($path);
+  $line = trim($f_contents[rand(0, count($f_contents) - 1)]);
+  return $line;
+}

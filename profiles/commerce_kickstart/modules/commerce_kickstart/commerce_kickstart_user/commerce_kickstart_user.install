@@ -1,0 +1,36 @@
+<?php
+
+/**
+ * Implements hook_enable().
+ */
+function commerce_kickstart_user_enable() {
+  commerce_kickstart_rebuild_feature('commerce_kickstart_user');
+
+  drupal_static_reset();
+  $default_theme = variable_get('theme_default', 'omega_kickstart');
+  _block_rehash($default_theme);
+  try {
+    db_update('block')
+      ->fields(array(
+        'region' => 'user_first',
+        'status' => (int) '1',
+        'visibility' => '0',
+        'pages' => '',
+        'title' => '<none>',
+      ))
+      ->condition('module', 'menu')
+      ->condition('delta', 'menu-user-menu')
+      ->condition('theme', $default_theme)
+      ->execute();
+  } catch (Exception $e) {
+    watchdog_exception('block', $e);
+    throw $e;
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function commerce_kickstart_user_uninstall() {
+  variable_del('commerce_kickstart_user_breadcrumbs');
+}

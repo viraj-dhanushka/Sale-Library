@@ -1,0 +1,19 @@
+name = Commerce Backoffice content
+description = Backoffice content views for Commerce.
+core = 7.x
+package = Commerce (contrib)
+
+dependencies[] = commerce_backoffice
+dependencies[] = commerce_product_reference
+dependencies[] = views_bulk_operations
+
+; Views handlers
+files[] = includes/views/handlers/commerce_backoffice_content_filter_node_type.inc
+files[] = includes/views/plugins/commerce_backoffice_content_plugin_display_system.inc
+
+; Information added by Drupal.org packaging script on 2015-10-14
+version = "7.x-1.5"
+core = "7.x"
+project = "commerce_backoffice"
+datestamp = "1444858742"
+

@@ -1,0 +1,45 @@
+<?php
+
+class AddThisPermissionsTestCase extends DrupalWebTestCase
+{
+
+    public function setUp()
+    {
+        parent::setUp('addthis');
+    }
+
+    public static function getInfo()
+    {
+        return array(
+            'name' => 'Permission tests',
+            'description' => 'Permission tests for the AddThis-module.',
+            'group' => 'AddThis',
+        );
+    }
+
+    public function testUserWithoutAdministerAddThisPermissionShouldNotBeAllowedToAccessAddThisSystemSettings()
+    {
+        $this->drupalLogin($this->createAdminUserWithoutAddThisAdministrationPermission());
+        $this->drupalGet('admin/config/system/addthis');
+        $this->assertRaw(t('Access denied'),
+            'A user without administer addthis permission should not be able to access AddThis system settings.');
+    }
+
+    public function testUserWithoutAdministerAdvancedAddThisPermissionShouldNotBeAllowedToAccessAdvancedAddThisSystemSettings()
+    {
+        $this->drupalLogin($this->createAdminUserWithoutAdvancedAddThisAdministrationPermission());
+        $this->drupalGet('admin/config/system/addthis');
+        $this->assertNoRaw(t('Advanced settings'),
+            'A user without administer advanced addthis permission should not be able to access advanced AddThis system settings.');
+    }
+
+    private function createAdminUserWithoutAddThisAdministrationPermission()
+    {
+        return $this->drupalCreateUser(array('administer content types'));
+    }
+
+    private function createAdminUserWithoutAdvancedAddThisAdministrationPermission()
+    {
+        return $this->drupalCreateUser(array('administer content types', AddThis::PERMISSION_ADMINISTER_ADDTHIS));
+    }
+}

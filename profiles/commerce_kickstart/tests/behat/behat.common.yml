@@ -1,0 +1,34 @@
+default:
+  suites:
+    default:
+      failure_path: '%paths.base%/failures'
+      paths:
+        features: 'features'
+      contexts:
+        - FeatureContext
+        - FailureContext
+        - Drupal\DrupalExtension\Context\DrupalContext
+        - Drupal\DrupalExtension\Context\MinkContext
+  extensions:
+    Behat\MinkExtension:
+      goutte: ~
+      selenium2:
+        browser: chrome
+      sessions:
+        default:
+          selenium2:
+            browser: chrome
+            wd_host: http://localhost:9515
+            capabilities:
+              chrome:
+                switches:
+                  - "--window-size=800,600"
+                  - "--no-sandbox"
+                  - "--user-agent=ChromeDriver"
+                  - "--headless"
+      files_path: ../../
+    Drupal\DrupalExtension:
+      blackbox: ~
+      region_map:
+        Tabs: ".tabs.primary"
+        Navbar: "#toolbar"

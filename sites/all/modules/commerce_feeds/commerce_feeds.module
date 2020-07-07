@@ -1,0 +1,78 @@
+<?php
+
+/**
+ * Implements hook_feeds_plugins().
+ */
+function commerce_feeds_feeds_plugins() {
+  $path = drupal_get_path('module', 'commerce_feeds') . '/plugins';
+
+  $info = array();
+  $info['FeedsCommerceProductProcessor'] = array(
+    'name' => 'Commerce Product processor',
+    'description' => 'Create and update commerce products.',
+    'help' => 'Create and update commerce products from parsed content.',
+    'handler' => array(
+      'parent' => 'FeedsProcessor',
+      'class' => 'FeedsCommerceProductProcessor',
+      'file' => 'FeedsCommerceProductProcessor.inc',
+      'path' => $path,
+    ),
+  );
+  if (module_exists('commerce_customer')) {
+    $info['FeedsCommerceCustomerProfileProcessor'] = array(
+      'name' => 'Commerce Customer Profile processor',
+      'description' => 'Create and update commerce customer profiles.',
+      'help' => 'Create and update commerce customer profiles from parsed content.',
+      'handler' => array(
+        'parent' => 'FeedsProcessor',
+        'class' => 'FeedsCommerceCustomerProfileProcessor',
+        'file' => 'FeedsCommerceCustomerProfileProcessor.inc',
+        'path' => $path,
+      ),
+    );
+  }
+  if (module_exists('commerce_coupon')) {
+    $info['FeedsCommerceCouponProcessor'] = array(
+      'name' => 'Commerce Coupon processor',
+      'description' => 'Create and update coupons.',
+      'help' => 'Create and update coupons from parsed content.',
+      'handler' => array(
+        'parent' => 'FeedsProcessor',
+        'class' => 'FeedsCommerceCouponProcessor',
+        'file' => 'FeedsCommerceCouponProcessor.inc',
+        'path' => $path,
+      ),
+    );
+  }
+
+  return $info;
+}
+
+/**
+ * Implements hook_feeds_processor_targets_alter().
+ *
+ * On behalf of commerce_price.module.
+ */
+function commerce_price_feeds_processor_targets_alter(&$targets, $entity_type, $bundle_name) {
+  module_load_include('inc', 'commerce_feeds', 'mappers/commerce_price');
+  _commerce_price_feeds_processor_targets_alter($targets, $entity_type, $bundle_name);
+}
+
+/**
+ * Implements hook_feeds_processor_targets_alter().
+ *
+ * On behalf of commerce_product_reference.module.
+ */
+function commerce_product_reference_feeds_processor_targets_alter(&$targets, $entity_type, $bundle_name) {
+  module_load_include('inc', 'commerce_feeds', 'mappers/commerce_product_reference');
+  _commerce_product_reference_feeds_processor_targets_alter($targets, $entity_type, $bundle_name);
+}
+
+/*
+ * Implements hook_modules_disabled().
+ */
+function commerce_feeds_modules_disabled($modules) {
+  if (in_array('commerce_customer', $modules) || in_array('commerce_coupon', $modules)) {
+    cache_clear_all('plugins:feeds:plugins', 'cache');
+  }
+}

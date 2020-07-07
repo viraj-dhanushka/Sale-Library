@@ -1,0 +1,35 @@
+/* mm-effect-menu-slide */
+
+$mm_transitionDuration: .4s;
+$mm_transitionFunction: ease;
+$mm_subpanelOffset: 100%;
+
+.mm-menu.mm-effect-menu-slide
+{
+  transition: transform $mm_transitionDuration $mm_transitionFunction;
+}
+html
+{
+  //	Left
+  &.mm-opened .mm-menu.mm-effect-menu-slide
+  {
+    transform: translate3d( -$mm_subpanelOffset, 0, 0 );
+  }
+  &.mm-opening .mm-menu.mm-effect-menu-slide
+  {
+    transform: translate3d( 0%, 0, 0 );
+  }
+
+  //	Right
+  &.mm-right
+  {
+    &.mm-opened .mm-menu.mm-effect-menu-slide
+    {
+      transform: translate3d( $mm_subpanelOffset, 0, 0 );
+    }
+    &.mm-opening .mm-menu.mm-effect-menu-slide
+    {
+      transform: translate3d( 0%, 0, 0 );
+    }
+  }
+}

@@ -1,0 +1,18 @@
+name = Commerce Simple Stock
+description = Manage stock levels of Commerce products using a decimal level field and rules
+package = Commerce (stock)
+dependencies[] = number
+dependencies[] = commerce_product
+dependencies[] = commerce_order
+dependencies[] = commerce_stock
+dependencies[] = commerce_checkout
+dependencies[] = rules
+dependencies[] = list
+core = 7.x
+configure = admin/commerce/config/stock/ss
+; Information added by Drupal.org packaging script on 2016-03-29
+version = "7.x-2.3"
+core = "7.x"
+project = "commerce_stock"
+datestamp = "1459244643"
+

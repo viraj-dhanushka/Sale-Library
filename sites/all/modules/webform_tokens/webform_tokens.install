@@ -1,0 +1,57 @@
+<?php
+
+/**
+ * @file
+ * Provides install, updated, and uninstall functions for Webform Tokens.
+ */
+
+/**
+ * Implements hook_update_N().
+ */
+
+/**
+ * As of Webform 7.x-4.x, tokens are included in Webform itself. This module only upgrade old-style Webform Tokens module tokens used in FillPDF to the new Webform 4 tokens. Once the updates in this module have been run, you should uninstall this module.
+ * Components within fieldsets will not be converted properly and must be re-done manually.
+ * Value tokens for special array values, such as [webform:val-field_key:count] and [webform:val-field_key:keys], are not supported by Webform 4.
+ */
+function webform_tokens_update_7400() {
+  $tables = array(
+    'fillpdf_forms' => 'title',
+    'fillpdf_fields' => 'value',
+  );
+  foreach ($tables as $table => $column) {
+    // Only attempt to act on tables that exist.
+    if (!db_table_exists($table)) {
+      continue;
+    }
+    // Grab all values that need to be updated.
+    $query = db_select($table)
+      ->distinct()
+      ->fields($table, array($column))
+      ->condition($column, '%[webform:%', 'LIKE')
+      ->execute();
+    while ($result = $query->fetch()) {
+      $old = $result->$column;
+
+      // Filter old value to get new value.
+      $new = str_replace('[webform:meta-nid]', '[node:nid]', $old);
+      $new = str_replace('[webform:meta-sid]', '[submission:sid]', $new);
+      $new = str_replace('[webform:meta-remote_addr]', '[submission:ip-address]', $new);
+      $new = preg_replace('/\[webform:meta-nid:([^\]]*)\]/', '[node:$1]', $new);
+      $new = preg_replace('/\[webform:meta-submitted(:[^\]]*)?\]/', '[submission:date$1]', $new);
+      $new = preg_replace('/\[webform:meta-uid(:[^\]]*)?\]/', '[submission:user$1]', $new);
+      $new = preg_replace('/\[webform:meta-label-([^\]]+)\]/', '[submission:values:$1:label]', $new);
+      $new = preg_replace('/\[webform:val-([^\]]+)\]/', '[submission:values:$1]', $new);
+
+      // Change all old values to new value, once per value.
+      if ($old !== $new) {
+        db_update($table)
+          ->fields(array(
+            $column => $new,
+          ))
+          ->condition($column, $old, '=')
+          ->execute();
+      }
+    }
+  }
+}

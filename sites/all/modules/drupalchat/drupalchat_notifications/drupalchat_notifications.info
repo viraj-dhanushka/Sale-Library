@@ -1,0 +1,19 @@
+name = DrupalChat Notifications
+package = DrupalChat
+description = An experimental module. DO NOT USE IT ON PRODUCTION SITES. 
+;removed - description - Provides a notifications interface to the DrupalChat bar. Notifications can be sent by any module and are displayed in real time.
+core = 7.x
+php = 5.1
+dependencies[] = drupalchat
+
+files[] = drupalchat_notifications.install
+files[] = drupalchat_notifications.module
+
+hidden = TRUE
+
+
+; Information added by Drupal.org packaging script on 2020-06-01
+version = "7.x-2.10"
+core = "7.x"
+project = "drupalchat"
+datestamp = "1591033253"

@@ -1,0 +1,110 @@
+# 7.x-4.0-alpha6
+Use update.php to rebuild the registry because of class changes.
+If that does not work use the rebuild_registry module.
+
+More importantly classes have been restructured and javascript loading
+has been redesigned.
+
+- Restructured test classes.
+- Restructured the way widget.js is included, how loading is done and
+  how the addthis.js behaves.
+  - The addthis.js is always loaded but is used as a library instead of
+    executing everything directly like it was before.
+  - The include of AddThisJson and AddThisWidgetJs in AddThis::getInstance()
+    where removed because they should be autoloaded from the register.
+
+  Restructuring classes.
+  - In general the AddThis class has become a sort of module file that contains
+    all kinds of addthis related functions. This is bad design and therefore step
+    by step things are refactored. This breaks API but no official rc or release
+    has been given out yet.
+  - Classes are structured now in folders in a way namespace could be organised.
+    Because PHP 5.2 does not support namespaces we only use classes but the
+    structure is already there for future portability.
+  - AddThisScriptManager is added as a Service. This handles the attachment of
+    js and settings when needing addthis or widgets on your page. The AddThis->addWidgetJs,
+    AddThis->includeWidgetJs and AddThis->addConfigurationOptionsJs where
+    removed in favor of the AddThisScriptManager functionality.
+  - AddThisJson is moved to the Util directory.
+  - AddThisWidgetJs is renamed to AddThisWidgetJsUrl and moved to the Util
+    directory. The name changed because it better displays the purpose of the
+    class.
+  - AddThis->getServiceNamesAsCommaSeparatedString was made public to be usable
+    inside the AddThisScriptManager.
+  - getWidgetJsLoadType was renamed to getWidgetJsInclude because it displays
+    the type of information better.
+  - Related to the previous the WIDGET_JS_LOAD_TYPE was removed and split into
+    WIDGET_JS_LOAD_DOMREADY, WIDGET_JS_LOAD_ASYNC and WIDGET_JS_INCLUDE. The
+    reason beeing that the old way was misinterpreted. The DOMREADY and ASYNC
+    type of loading are two different things but where not possible separately.
+
+  Examples
+  - Expanded the example with a hook_page_build to run the attach functionality
+    on the whole page.
+
+  Test
+  - A test module was added to be able to test extra things but seperate it from
+    the main module.
+  - addthis.test contained two test classes. These where split into two sperate
+    files.
+
+# 7.x-4.0-alpha5
+Some undefined index where fixed on the block save for disabled display.
+
+- Unsupported operand types on block save. [#2181367]
+- Minor changes to the documentation.
+- Fixed issue #1943896 by fcjversc: Add Linkedin vertical counter.
+- Fixed issue #2247245 by jmuzz: Implement button orientation option for Facebook Share button.
+- Fixed issue #2250109 by matglas86, jmuzz: Add support for individual share counters.
+- Fixed issue #2233585 by matglas86, mstef: Uncaught TypeError: Object #<Object> has no method 'ready' .
+- Fixed issue #2206515 by matglas86, dubois: Add configuration 'services_excluded' (globally excluded services) to AddThis Basic Settings.
+- Fixed issue #1989152 by matglas86, labue, juampy: Allow alterations to 'addthis_share' variable in 'addthis_configuration' alter hook.
+- Fixed issue #2241967: Invalid preferred services on form validation.
+- Issue #2181367 by matglas86, dubois | 4fs: Error Fatal error: Unsupported operand types.
+
+# 7.x-4.0-alpha4
+Fixed two nasty bugs in 7.x-4.0-alpha3.
+
+- Undefined index: button_size & Undefined index: extra_css. [#2174975]
+- Double colon :: changed to -> because addWidgetJs was not static. [#2174771]
+
+# 7.x-4.0-alpha3
+
+Major changes
+- Configuration possible to blocks. [#1694868]
+- Fixed tracking not working. [#1919156]
+- Added DOM loading and basic include.
+- Changed loading of widget.js be done only when a display is rendered.
+
+Minor changes
+- Coding standard fixes. Still more to do.
+- Changing label text to describe compact menu enabled services.
+- Fixed https loading of basic button. [#1734752]
+- Fixed test on clickback tracking settings. [#2164647]
+- Removed block dependency [#1814428]
+- Updated AddThis js version from 250 to 300.
+- Removed some files[] from the info because they did not contain classes. [#2151315]
+
+======
+
+Added namespace adding for Facebook Like.
+Added counter bubble orientation in Basic Toolbox display type.
+Fixed getDisplayTypes() to work with blocks. Also provide default settings always.
+Add t() to description of Google Analytics elements in config page.
+
+Removed legacy display types.
+  AddThis module contained some small non generic display types. They where
+  removed in favor of the display types added in the addthis_displays submodule.
+
+Redesigned the config page.
+  The settings page has been made more condensed and options have been merged
+  into clear categories. There are some options that where removed because of
+  legacy functionality that is now support inside the display types.
+
+Fixed default value for ui_co_brand setting.
+Added alter hook for configuration.
+Added alter hook for markup options.
+Added alter hook for markup render array.
+Fixed async loading of widget.js.
+Fix for #1308970 reported by vasike,fixed by matglas86. Error in block configure.
+Changed dir name for submodule from addthis_display to addthis_displays.

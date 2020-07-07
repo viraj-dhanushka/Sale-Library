@@ -1,0 +1,16 @@
+name = Fivestar
+description = Enables fivestar ratings on content, users, etc.
+package = Voting
+core = 7.x
+dependencies[] = votingapi
+configure = admin/config/content/fivestar
+files[] = fivestar.migrate.inc
+files[] = includes/fivestar_views_handler_filter_in_operator.inc
+files[] = test/fivestar.base.test
+files[] = test/fivestar.field.test
+
+; Information added by Drupal.org packaging script on 2020-06-13
+version = "7.x-2.3"
+core = "7.x"
+project = "fivestar"
+datestamp = "1592024933"

@@ -1,0 +1,139 @@
+/* Toolbar Styles */
+body.toolbar #toolbar {
+  background-color: #50adf5;
+  background-image: -webkit-gradient(linear, 0% 0%, 0% 100%, from(#55b5ff), to(#50adf5));
+  background-image: -webkit-linear-gradient(top, #55b5ff, #50adf5);
+  background-image: -moz-linear-gradient(top, #55b5ff, #50adf5);
+  background-image: -ms-linear-gradient(top, #55b5ff, #50adf5);
+  background-image: -o-linear-gradient(top, #55b5ff, #50adf5);
+  background-image: linear-gradient(to bottom, #55b5ff, #50adf5);
+}
+body.toolbar #toolbar div.toolbar-menu {
+  background-color: #50adf5;
+  background-image: -webkit-gradient(linear, 0% 0%, 0% 100%, from(#55b5ff), to(#50adf5));
+  background-image: -webkit-linear-gradient(top, #55b5ff, #50adf5);
+  background-image: -moz-linear-gradient(top, #55b5ff, #50adf5);
+  background-image: -ms-linear-gradient(top, #55b5ff, #50adf5);
+  background-image: -o-linear-gradient(top, #55b5ff, #50adf5);
+  background-image: linear-gradient(to bottom, #55b5ff, #50adf5);
+}
+#toolbar a {
+  color: #fff;
+  text-shadow: 0 1px 1px #18466b;
+}
+
+/* Home Logo Link */
+body.toolbar #toolbar-home a,
+body.toolbar #toolbar-home ul li a.active,
+body.toolbar #toolbar-home a:hover {
+  background: transparent !important;
+  -moz-box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+  box-shadow: none !important;
+  color: #fff;
+}
+body.toolbar #toolbar-home a span {
+  background: transparent url("images/logo-menu.png") no-repeat 0 0;
+  display: block;
+  min-height: 40px;
+  text-indent: -9999px;
+  width: 130px;
+  margin: 0;
+}
+/* User Menu */
+#toolbar #toolbar-user li.account a {
+  color: #fddb84;
+}
+
+body.toolbar #toolbar div.toolbar-menu ul li a {
+  background: transparent;
+}
+body.toolbar #toolbar div.toolbar-menu {
+  height: auto;
+}
+body.toolbar #toolbar div.toolbar-menu a {
+font: normal 500 15px/1.75em "Open Sans",Arial,sans-serif;
+}
+body.toolbar div.toolbar-menu li.depth-2:hover a,
+body.toolbar div.toolbar-menu #toolbar-user li:hover a,
+body.toolbar div.toolbar-menu li.depth-2 a.active,
+body.toolbar div.toolbar-menu li.active-trail a{
+  background: #2f88cd !important;
+  -moz-box-shadow: inset 0 0 5px #1a6bdf;
+  -webkit-box-shadow: inset 0 0 5px #1a6bdf;
+  box-shadow: inset 0 0 5px #1a6bdf;
+  border-radius: 10px;
+  text-decoration: none;
+}
+body.toolbar div.toolbar-menu #toolbar-user,
+body.toolbar #toolbar ul.menu-depth-2 {
+  padding-top: 5px;
+}
+body.toolbar li.depth-2:hover li.depth-3 a {
+  background: transparent !important;
+  -moz-box-shadow: none;
+  -webkit-box-shadow: none;
+  box-shadow: none;
+}
+body.toolbar ul.menu-depth-3 li.depth-3 a {
+  background: transparent;
+  color: #57b3fc !important;
+}
+body.toolbar ul.menu-depth-4 li.depth-4 a {
+  background: transparent;
+  color: #fff !important;
+}
+body.toolbar ul.menu-depth-4 li.depth-4 a:hover {
+  color: #57b3fc !important;
+}
+body.toolbar #toolbar li.depth-2 {
+  height: 40px;
+  padding: 0;
+}
+body.toolbar #toolbar .wrapper-depth-3 {
+  background: transparent url("images/bg-dropdown.png");
+  margin: 0;
+}
+body.toolbar #toolbar .wrapper-depth-3 ul.group {
+  margin-bottom: 10px;
+}
+/* 2-column Store Settings Menu */
+#toolbar .toolbar-menu-store-settings .wrapper-depth-3 {
+  width: 400px;
+}
+#toolbar .toolbar-menu-store-settings .wrapper-depth-3 ul.group {
+  float: left; /* LTR */
+  width: 49%;
+  clear: none;
+}
+#toolbar .toolbar-menu-store-settings .wrapper-depth-3 ul.group-0 {
+  float: right; /* LTR */
+}
+#toolbar .toolbar-menu-store-settings .wrapper-depth-4 ul.group {
+  float: none;
+  width: 100%;
+}
+/* 2-column Site Settings Menu */
+#toolbar .toolbar-menu-site-settings .wrapper-depth-3 {
+  width: 400px;
+}
+#toolbar .toolbar-menu-site-settings .wrapper-depth-3 ul.group {
+  float: left;  /* LTR */
+  width: 49%;
+  clear: none;
+}
+#toolbar .toolbar-menu-site-settings .wrapper-depth-3 ul.group-1 {
+  float: right; /* LTR */
+}
+#toolbar .toolbar-menu-site-settings .wrapper-depth-4 ul.group {
+  float: none;
+  width: 100%;
+}
+
+/* Chrome + Safari Hacks */
+@media screen and (-webkit-min-device-pixel-ratio:0) {
+  /* Fix for drop-downs disappering on video pages */
+  .overlay-open #toolbar.toolbar {
+    clip: inherit !important;
+  }
+}

@@ -1,0 +1,12 @@
+name = Service links
+description = Module engine for add various service links about sharing networks to nodes.
+core = 7.x
+package = Service Links
+
+files[] = service_links_handler_field_service_links.inc
+configure = admin/config/services/service-links
+
+; Information added by drush on 2014-07-03
+version = "7.x-2.3+0-dev"
+project = "service_links"
+datestamp = "1404397265"

@@ -1,0 +1,13 @@
+name = Database search
+description = "Offers an implementation of the Search API that uses database tables for indexing content."
+dependencies[] = search_api
+core = 7.x
+package = Search
+
+files[] = search_api_db.test
+files[] = service.inc
+; Information added by Drupal.org packaging script on 2018-09-17
+version = "7.x-1.7"
+core = "7.x"
+project = "search_api_db"
+datestamp = "1537173484"

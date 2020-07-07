@@ -1,0 +1,14 @@
+<?php
+
+/**
+ * @file
+ * Install functions for commerce_feeds module.
+ */
+
+/*
+ * Implements hook_enable().
+ */
+function commerce_feeds_enable() {
+  // Clear the cache to display in Feeds as available plugin.
+  cache_clear_all('plugins:feeds:plugins', 'cache');
+}

@@ -1,0 +1,464 @@
+<?php
+
+/**
+ * @file
+ * Implements 2checkout for use with Drupal Commerce.
+ */
+
+function commerce_2checkout_commerce_payment_method_info() {
+  $payment_methods = array();
+
+  $icons = commerce_2checkout_icons();
+  $display_title = t('!logo 2checkout - PCI Compliant Hosted Payment Page', array('!logo' => $icons['2checkout']));
+  unset ($icons['2checkout']);
+  $display_title .= '<div class="commerce-2checkout-icons"><span class="label">' . t('Includes:') . '</span>' . implode(' ', $icons) . '</div>';
+
+  $payment_methods['2checkout'] = array(
+    'base' => 'commerce_2checkout',
+    'title' => t('2checkout'),
+    'short_title' => t('2checkout'),
+    'display_title' => $display_title,
+    'description' => t('2checkout'),
+    'terminal' => FALSE,
+    'offsite' => TRUE,
+    'offsite_autoredirect' => TRUE,
+  );
+
+  return $payment_methods;
+}
+
+
+/**
+ * Payment method callback: settings form.
+ */
+function commerce_2checkout_settings_form($settings = NULL) {
+  $form = array();
+
+  $settings = (array) $settings + array(
+    'business' => '',
+    'secret_word' => '',
+    'demo' => false,
+    'sandbox' => false,
+    'fixed' => true,
+    'language' => 'en',
+    'pay_method' => 'CC',
+    'skip_landing' => true,
+    'direct_checkout' => true,
+    'third_party_cart' => true,
+    'tangible' => true,
+    'logging' => '',
+    'coupon' => '',
+  );
+
+  $form['business'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Account number'),
+    '#description' => t('Your 2checkout account number.'),
+    '#default_value' => $settings['business'],
+    '#maxlength' => 64,
+    '#required' => TRUE,
+  );
+  $form['secret_word'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Secret Word'),
+    '#description' => t('2Checkout Secret Word<br/>Must be the same value you have entered in your 2Checkout Site Management Page.'),
+    '#default_value' => $settings['secret_word'],
+    '#maxlength' => 64,
+    '#required' => TRUE,
+  );
+  $form['skip_landing'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Skip landing.'),
+    '#description' => t('skip the order review page of the multi-page purchase routine.'),
+    '#default_value' => $settings['skip_landing'],
+  );
+  $form['language'] = array(
+    '#type' => 'select',
+    '#title' => t('Checkout page language.'),
+    '#options' => commerce_2checkout_languages(),
+    '#default_value' => $settings['language'],
+  );
+  $form['demo'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Demo mode.'),
+    '#description' => t('Enable demo mode.'),
+    '#default_value' => $settings['demo'],
+  );
+  $form['sandbox'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Sandbox.'),
+    '#description' => t('Use sandbox site (https://sandbox.2checkout.com/).'),
+    '#default_value' => $settings['sandbox'],
+  );
+  $form['direct_checkout'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Inline Checkout.'),
+    '#description' => t('If disabled, customer will go to standard checkout.'),
+    '#default_value' => $settings['direct_checkout'],
+  );
+  $form['third_party_cart'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Third Party Cart.'),
+    '#description' => t('Select to use third party cart parameters. Do not select to use Pass Through Products (Lists lineitem prices at 2Checkout)'),
+    '#default_value' => $settings['third_party_cart'],
+  );
+  $form['tangible'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Tangible goods.'),
+    '#description' => t('Set to Yes to send shipping address to 2Checkout.'),
+    '#default_value' => $settings['tangible'],
+  );
+  $form['logging'] = array(
+    '#type' => 'radios',
+    '#title' => t('Logging'),
+    '#options' => array(
+      'notification' => t('Log notifications during processing.'),
+      'full' => t('Log notifications with all data during validation and processing (used for debugging).'),
+    ),
+    '#default_value' => $settings['logging'],
+  );
+
+  return $form;
+}
+
+
+/**
+ * Payment method callback: adds a message and CSS to the submission form.
+ */
+function commerce_2checkout_submit_form($payment_method, $pane_values, $checkout_pane, $order) {
+  $form['2checkout_information'] = array(
+    '#markup' => '<span class="commerce-2checkout-info">' . t('(Continue with checkout to complete payment via 2checkout.)') . '</span>',
+  );
+
+  return $form;
+}
+
+
+/**
+ * Payment method callback: redirect form, a wrapper around the module's general
+ *   use function for building a 2checkout form.
+ */
+function commerce_2checkout_redirect_form($form, &$form_state, $order, $payment_method) {
+  // Return an error if the enabling action's settings haven't been configured.
+  if (empty($payment_method['settings']['business'])) {
+    drupal_set_message(t('2checkout is not configured for use. No 2checkout account id has been specified.'), 'error');
+    return array();
+  }
+
+  return commerce_2checkout_order_form($form, $form_state, $order, $payment_method['settings']);
+}
+
+
+/**
+ * Payment method callback: all returns from 2checkout are returned here.
+ */
+function commerce_2checkout_redirect_form_validate($order, $payment_method) {
+
+  if (!empty($payment_method['settings']['logging']) &&
+    $payment_method['settings']['logging'] == 'full') {
+    watchdog('commerce_2checkout', 'Customer returned from 2checkout with the following POST data:<pre>' . check_plain(print_r($_REQUEST, TRUE)) . '</pre>', array(), WATCHDOG_NOTICE);
+  }
+  
+  global $user;
+  $seller_id = $payment_method['settings']['business'];
+  $secret_word = $payment_method['settings']['secret_word'];
+  $order_number = $_REQUEST['order_number'];
+
+  if ($payment_method['settings']['demo'] == '1') {
+  $order_number = 1;
+  }
+
+  $compare_string = $secret_word . $seller_id . $order_number . $_REQUEST['total'];
+  $compare_hash1 = strtoupper(md5($compare_string));
+  $compare_hash2 = $_REQUEST['key'];
+
+  if ($compare_hash1 != $compare_hash2) {
+    return FALSE;
+  } else {
+    $settings = $payment_method['settings'];
+    commerce_order_status_update($order, 'completed');
+    commerce_order_save ($order);
+    // Save the transaction information.
+
+    // Allow modules to alter parameters of the API response.
+    drupal_alter('commerce_2checkout_validate_form_data', $_REQUEST, $order);
+
+    $transaction = commerce_payment_transaction_new('2checkout', $_REQUEST['merchant_order_id']);
+    $transaction->instance_id = $payment_method['instance_id'];
+    $transaction->amount = commerce_currency_decimal_to_amount($_REQUEST['total'], commerce_default_currency());
+    $transaction->currency_code = commerce_default_currency();
+    $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
+    $transaction->message = t('The payment has completed.');
+    commerce_payment_transaction_save($transaction);
+  }
+}
+
+
+/**
+ * Helper function to get some country code; requires Apache's mod_geoip to
+ * be loaded and enabled.
+ */
+function commerce_2checkout_guess_country_code () {
+  if (isset($_REQUEST['country_code'])) {
+    return $_REQUEST['country_code'];
+  } else if (function_exists('apache_note')) {
+    return apache_note('GEOIP_COUNTRY_CODE');
+  } else {
+    return false;
+  }
+}
+
+
+/**
+ * Keyed array of 2checkout parameters
+ */
+function commerce_2checkout_purchase_parameters ($order, $settings) {
+  $wrapper = entity_metadata_wrapper('commerce_order', $order);
+  $currency_code = $wrapper->commerce_order_total->currency_code->value();
+  $amount = $wrapper->commerce_order_total->amount->value();
+
+  if (isset ($order->commerce_customer_billing[LANGUAGE_NONE][0])) {
+    $billing_address = $wrapper->commerce_customer_billing->commerce_customer_address->value();
+    $profile_id = $order->commerce_customer_billing[LANGUAGE_NONE][0]['profile_id'];
+    $profile = commerce_customer_profile_load ($profile_id);
+  }
+  if (isset ($order->commerce_customer_shipping[LANGUAGE_NONE][0]))
+    $shipping_address = $wrapper->commerce_customer_shipping->commerce_customer_address->value();
+  // Build the data array that will be translated into hidden form values.
+  $data = array (
+    // 2Checkout account number
+    'sid' => $settings['business'],
+
+    //  Set language code
+    'lang' => $settings['language'],
+
+    'merchant_order_id' => $order->order_id,
+
+    // CC for Credit Card, PPI for PayPal. This will set the default selection on the payment method step during the checkout process.
+    'pay_method' => 'CC',
+
+    // If set to 1 it will skip the order review page of the multi-page checkout.
+    'skip_landing' => $settings['skip_landing'],
+
+    // Used to specify an approved URL on-the-fly, but is limited to the same domain that is used for your 2Checkout account, otherwise it will fail. This parameter will over-ride any URL set on the Site Management page.
+    'x_receipt_link_url' => url('checkout/' . $order->order_id . '/payment/return/' . $order->data['payment_redirect_key'], array('absolute' => TRUE)),
+
+    // Specify a 2Checkout created coupon code. If applicable, the coupon will
+    // be automatically applied to the sale.
+    'coupon' => '',
+
+    // Populate the billing information page
+    'card_holder_name' => isset ($billing_address) ? $billing_address['name_line']: '',
+    'city' => isset ($billing_address) ? $billing_address['locality']: '',
+    'country' => isset ($billing_address) ? $billing_address['country'] : commerce_2checkout_guess_country_code(),
+    'state' => isset ($billing_address) ? $billing_address['administrative_area'] : 'XX',
+    'zip' => isset ($billing_address) ? $billing_address['postal_code']: '',
+    'street_address' => isset ($billing_address) ? $billing_address['thoroughfare']: '',
+    'street_address2' => isset ($billing_address) ? $billing_address['premise']: '',
+    'email' => $order->mail,
+
+    // Commerce has no phone field, so just try something. It's required for
+    // 2checkout, so try to pass something in is better than having the user
+    // fill in more details on another form.
+    'phone' => isset ($profile->field_phone[LANGUAGE_NONE][0]['value']) ? $profile->field_phone[LANGUAGE_NONE][0]['value'] : '',
+  );
+
+  //Populate the shipping address
+  if (isset($shipping_address)) {
+    $data['ship_name'] = isset ($shipping_address) ? $shipping_address['name_line']: '';
+    $data['ship_city'] = isset ($shipping_address) ? $shipping_address['locality']: '';
+    $data['ship_country'] = isset ($shipping_address) ? $shipping_address['country'] : commerce_2checkout_guess_country_code();
+    $data['ship_state'] = isset ($shipping_address) ? $shipping_address['administrative_area'] : 'XX';
+    $data['ship_zip'] = isset ($shipping_address) ? $shipping_address['postal_code']: '';
+    $data['ship_street_address'] = isset ($shipping_address) ? $shipping_address['thoroughfare']: '';
+    $data['ship_street_address2'] = isset ($shipping_address) ? $shipping_address['premise']: '';
+  }
+
+  if ($settings['third_party_cart']) {
+    $data['cart_order_id'] = $order->order_id;
+    $data['total'] = number_format($amount, 2, '.', '')/100;
+    $i = 0;
+    foreach ($order->commerce_line_items[LANGUAGE_NONE] as $li) {
+      $line_item_id = $li['line_item_id'];
+      $line_item = commerce_line_item_load ($line_item_id);
+      if ($line_item->type == 'product') {
+        $product_id = ($line_item->commerce_product[LANGUAGE_NONE][0]['product_id']);
+        $product = commerce_product_load ($product_id);
+      }
+      $data['c_prod_' . $i] = $product_id.','.intval($line_item->quantity);
+      $data['c_name_' . $i] = $product->title;
+      $data['c_description_' . $i] = $product->sku;
+      $data['c_price_' . $i] = round (commerce_currency_amount_to_decimal($line_item->commerce_unit_price[LANGUAGE_NONE][0]['amount'], $line_item->commerce_total[LANGUAGE_NONE][0]['currency_code']), 2);
+      $i++;
+    }
+
+  }
+  else {
+    // Emit a line for every product
+    $data['mode'] = '2CO';
+    $i = 0;
+    foreach ($order->commerce_line_items[LANGUAGE_NONE] as $li) {
+      $line_item_id = $li['line_item_id'];
+      $line_item = commerce_line_item_load ($line_item_id);
+      if ($line_item->type == 'product') {
+        $product_id = intval ($line_item->commerce_product[LANGUAGE_NONE][0]['product_id']);
+        $product = commerce_product_load ($product_id);
+        $name = $product->title;
+        $data['li_' . $i . '_type'] = $line_item->type;
+      }
+      elseif ($line_item->type == 'shipping') {
+        $name = $line_item->data['shipping_service']['display_title'];
+        $data['li_' . $i . '_type'] = 'product';
+      }
+      else {
+        $name = 'unknown item';
+        $data['li_' . $i . '_type'] = $line_item->type;
+      }
+      $data['li_' . $i . '_name'] = $name;
+      $data['li_' . $i . '_quantity'] = intval ($line_item->quantity);
+      $data['li_' . $i . '_price'] = round (commerce_currency_amount_to_decimal($line_item->commerce_unit_price[LANGUAGE_NONE][0]['amount'], $line_item->commerce_total[LANGUAGE_NONE][0]['currency_code']), 2);
+      $data['li_' . $i . '_tangible'] = 'N';
+      $i++;
+    }
+  }
+
+  $data['currency_code'] = $currency_code;
+
+  // Y to enable demo mode. Do not pass this in for live sales.
+  if ($settings['demo'] == 1)
+    $data['demo'] = 'Y';
+
+  // Allow modules to alter parameters of the API request.
+  drupal_alter('commerce_2checkout_order_form_data', $data, $order);
+
+  return $data;
+}
+
+
+/**
+ * Builds a 2checkout form from an order object.
+ *
+ * @param $order
+ *   The fully loaded order being paid for.
+ * @param $settings
+ *   An array of settings used to build out the form, including:
+ *   - account: the 2checkout account the payment submits to
+ *   - x_receipt_link_url: the URL 2checkout should send the user to on successful payment
+ *   - language: the language code to use on the payment form
+ *
+ * @return
+ *   A renderable form array.
+ */
+function commerce_2checkout_order_form($form, &$form_state, $order, $settings) {
+  $data = commerce_2checkout_purchase_parameters ($order, $settings);
+
+  $form['#action'] = commerce_2checkout_server_url($settings);
+
+  foreach ($data as $name => $value) {
+    if (!empty($value)) {
+      $form[$name] = array('#type' => 'hidden', '#value' => $value);
+    }
+  }
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Proceed to 2checkout'),
+  );
+
+  if ($settings['direct_checkout'] == 1) {
+      echo '<script src="https://www.2checkout.com/static/checkout/javascript/direct.min.js"></script>';
+  }
+
+  return $form;
+}
+
+
+/**
+ * Redirects to checkouts using GET instead of form POST
+ */
+function commerce_2checkout_redirect_checkout ($order) {
+  // Generate a key to use in the return URL from the redirected service.
+  $order->data['payment_redirect_key'] = drupal_hash_base64(time());
+  // And force 2checkout payment mechanism, must supply a payment instance id
+  reset ($order->payment_methods);
+  $order->data['payment_method'] = key ($order->payment_methods);
+  $order->data['offsite'] = true;
+  commerce_order_save($order);
+
+  // And make proper URL
+  $settings = reset ($order->payment_methods);
+  $settings = $settings['settings'];
+  $data = commerce_2checkout_purchase_parameters ($order, $settings);
+  drupal_goto (commerce_2checkout_server_url ($settings), array ('query' => $data));
+}
+
+
+/**
+ * Assume the shipping rate is available in $_REQUEST, and add that
+ * now. Useful when product + shipping rates are on one page.
+ */
+function commerce_2checkout_add_shipping ($order) {
+  if (isset ($_REQUEST['shipping_service'])) {
+    $service = $_REQUEST['shipping_service'];
+    $shipping_service = commerce_shipping_service_load($service);
+    $callback = commerce_shipping_service_callback($shipping_service, 'rate');
+    $price = $callback($shipping_service, $order);
+    $line_item = commerce_shipping_service_rate_calculate($service, $price, $order->order_id);
+    commerce_shipping_add_shipping_line_item ($line_item, $order);
+  }
+}
+
+
+/**
+ * Returns an array of 2checkout payment method icon img elements.
+ *
+ * @return
+ *   The array of themed payment method icons keyed by name: visa, mastercard,
+ *   amex, discover, paypal, 2checkout
+ */
+function commerce_2checkout_icons() {
+  $icons = array();
+
+  $payment_methods = array(
+    'visa' => t('Visa'),
+    'mastercard' => t('Mastercard'),
+    'amex' => t('American Express'),
+    'discover' => t('Discover'),
+    'paypal' => t('PayPal'),
+    '2checkout' => t('2checkout'),
+  );
+
+  foreach ($payment_methods as $name => $title) {
+    $path = url(drupal_get_path('module', 'commerce_2checkout') . '/images/' . $name . '.gif', array('absolute' => TRUE));
+    $icons[$name] = '<img src="' . $path . '" alt="' . $title . '" title="' . $title . '" class="commerce-2checkout-icon" />';
+  }
+
+  return $icons;
+}
+
+
+/**
+ * Returns the URL to the specified 2checkout server.
+ *
+ * @return
+ *   The URL to use to submit requests to 2checkout.
+ */
+function commerce_2checkout_server_url ($settings) {
+  return $settings['sandbox'] ? 'https://sandbox.2checkout.com/checkout/purchase' : 'https://www.2checkout.com/checkout/purchase';
+}
+
+
+/**
+ * Returns an array of all possible language codes.
+ */
+function commerce_2checkout_languages() {
+  return array('en' => 'English', 'zh' => 'Chinese', 'da' => 'Danish', 'nl' => 'Dujtch', 'fr' => 'French', 'gr' => 'German', 'el' => 'Greek', 'it' => 'Italian', 'jp' => 'Japanese', 'no' => 'Norwegian', 'pt' => 'Portugese', 'sl' => 'Slovenian', 'es_ib' => 'Spanish (es_ib)', 'es_la' => 'Spanish (es_la)', 'sv' => 'Swedish');
+}
+
+
+/**
+ * Returns an array of all possible currency codes.
+ */
+function commerce_2checkout_currencies() {
+  return drupal_map_assoc(array('AUD', 'BRL', 'CAD', 'CHF', 'CZK', 'DKK', 'EUR', 'GBP', 'HKD', 'HUF', 'ILS', 'JPY', 'MXN', 'MYR', 'NOK', 'NZD', 'PHP', 'PLN', 'SEK', 'SGD', 'THB', 'TWD', 'USD'));
+}

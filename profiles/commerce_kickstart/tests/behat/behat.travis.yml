@@ -1,0 +1,16 @@
+imports:
+    - behat.common.yml
+
+default:
+  suites:
+    default:
+      filters:
+        tags: "~@skip"
+  extensions:
+    Behat\MinkExtension:
+      base_url: http://127.0.0.1:8888
+    Drupal\DrupalExtension:
+      drush:
+        alias: self
+      # You need to set drupal - drupal_root with BEHAT_PARAMS
+      # export BEHAT_PARAMS="extensions[Drupal\\DrupalExtension\\Extension][drupal][drupal_root]=$DISTRO/drupal"

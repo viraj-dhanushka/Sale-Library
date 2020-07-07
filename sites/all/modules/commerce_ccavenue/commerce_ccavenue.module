@@ -1,0 +1,272 @@
+<?php
+/**
+ * @file
+ * CCavenue module for Drupal Commerce.
+ * For Developers: Please see NON_SEAMLESS_KIT downloaded from CCAvenues.com website.
+ */
+
+/**
+ * Administration forms form payment method.
+ */
+function commerce_ccavenue_settings_form($settings = NULL) {
+  $form = array();
+  $settings = (array) $settings + array(
+    'merchant_id' => '',
+    'working_key' => '',
+    'access_code' => '',
+    'ccavenue_server' => 'https://test.ccavenue.com/transaction/transaction.do?command=initiateTransaction',
+  );
+
+  $form['merchant_id'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Merchant id'),
+    '#default_value' => $settings['merchant_id'],
+    '#required' => TRUE,
+  );
+
+  $form['working_key'] = array(
+    '#type' => 'textfield',
+    '#title' => t('CCavenue Working key'),
+    '#default_value' => $settings['working_key'],
+    '#required' => TRUE,
+  );
+
+  $form['access_code'] = array(
+    '#type' => 'textfield',
+    '#title' => t('CCavenue Access Code'),
+    '#default_value' => $settings['access_code'],
+    '#required' => TRUE,
+  );
+
+  $form['ccavenue_server'] = array(
+    '#type' => 'select',
+    '#title' => t('Payment Mode'),
+    '#description' => t('The Available list of CCAvenue Servers'),
+    '#options' => array(
+      'https://secure.ccavenue.com/transaction/transaction.do?command=initiateTransaction' => ('Live'),
+      'https://test.ccavenue.com/transaction/transaction.do?command=initiateTransaction' => ('Test'),
+    ),
+    '#default_value' => $settings['ccavenue_server'],
+  );
+
+  return $form;
+}
+
+/**
+ * Register payment mehtod.
+ */
+function commerce_ccavenue_commerce_payment_method_info() {
+  $icon = _commerce_ccavenue_icons();
+  $display_title = t('CCAveneue <br/>!logo', array('!logo' => $icon));
+  $payment_methods = array();
+  $payment_methods['commerce_ccavenue'] = array(
+    'title' => t("CCavenue"),
+    'display_title' => $display_title,
+    'short_title' => 'CCavenue',
+    'description' => t("Payment method for CCavenue"),
+    'terminal' => FALSE,
+    'offsite' => TRUE,
+    'offsite_autoredirect' => TRUE,
+  );
+  return $payment_methods;
+}
+
+/**
+ * Ask for CCavenue redirect form.
+ */
+function commerce_ccavenue_redirect_form($form, &$form_state, $order, $payment_method) {
+  $wrapper = entity_metadata_wrapper('commerce_order', $order);
+   
+  $billing_address = $wrapper->commerce_customer_billing->commerce_customer_address->value(); // print_r($billing_address); exit;
+  // Get financial info.
+  $currency_code = $wrapper->commerce_order_total->currency_code->value();
+    
+  $order_data = array(
+    'merchant_id' => $payment_method['settings']['merchant_id'],
+    'amount' => $wrapper->commerce_order_total->amount->value() / 100,
+    'order_id' => $order->order_id,
+    'cancel_url' => url('checkout/' . $order->order_id . '/payment/back/' . $order->data['payment_redirect_key'], array('absolute' => TRUE)),
+    'redirect_url' => url('checkout/' . $order->order_id . '/payment/return/' . $order->data['payment_redirect_key'], array('absolute' => TRUE)),
+    'working_key' => $payment_method['settings']['working_key'],
+    'access_code' => $payment_method['settings']['access_code'],
+    'language' => 'EN',
+    'currency' => $currency_code,
+    'billing_name' => $billing_address['name_line'],
+    'billing_address' => $billing_address['thoroughfare']. ' ' . $billing_address['premise'] . ' ' . $billing_address['sub_premise'],
+    'billing_zip' => $billing_address['postal_code'],
+    'billing_city' => $billing_address['locality'],
+    'billing_state' => $billing_address['administrative_area'],
+    'billing_country' => $billing_address['country'],
+  );
+  $merchant_data = '';
+  foreach ($order_data as $key => $value) {
+    if ($key == 'working_key' || $key == 'access_code') {
+      continue;
+    }
+    $merchant_data .= $key . '=' . $value . '&';
+  }
+  // Add encrypted data to ordered data array.
+  $order_data['encRequest'] = _commerce_ccavenue_encrypt($merchant_data, $order_data['working_key']);
+  // Select the URL for form submission.
+  $form['encRequest'] = array(
+  	'#type' => 'hidden',
+  	'#attributes' => array('name' => 'encRequest'),
+  	'#value' => $order_data['encRequest'],
+  );
+
+  $form['access_code'] = array(
+  	'#type' => 'hidden',
+  	'#attributes' => array('name' => 'access_code'),
+  	'#value' => $order_data['access_code'],
+  );
+  
+  $form['#action'] = $payment_method['settings']['ccavenue_server'];
+   return $form;
+ }
+
+
+/**
+ * Implements hook_redirect_form_validate().
+ */
+function commerce_ccavenue_redirect_form_validate($order, $payment_method) {
+  $working_key = $payment_method['settings']['working_key'];
+  // This is the response sent by the CCAvenue Server.
+  $enc_response = $_REQUEST["encResp"];
+  // Crypto Decryption used as per the specified working key.
+  $rcvd_string = _commerce_ccavenue_decrypt($enc_response, $working_key);
+  $order_status = '';
+  $decrypt_values = explode('&', $rcvd_string);
+  $data_size = sizeof($decrypt_values);
+  for($i = 0; $i < $data_size; $i++) {
+    $information = explode('=', $decrypt_values[$i]);
+    if($i == 3) {
+      $order_status = $information[1];
+    }
+  }
+  $message = t('Security error ip Address was: @ip', array('@ip' => ip_address()));
+  if ($order_status === "Success") {
+    commerce_ccavenue_transaction($order, $payment_method, $order_status);
+    return drupal_set_message(t('Thank you for shopping with us. Your account has been charged and your transaction is successful.'));
+    // Here you need to put in the routines for a successful.
+    // Transaction such as sending an email to customer.
+    // Setting database status, informing logistics etc etc.
+  }
+  elseif ($order_status === "Aborted") {
+    commerce_ccavenue_transaction($order, $payment_method, $order_status);
+    return drupal_set_message(('Thank you for shopping with us.We will keep you posted regarding the status of your order through e-mail'));
+    // This is for payment American Express Card payment only.
+    // American Express authorisation status is available only after 5-6.
+  }
+  elseif ($order_status === "Failure") {
+    commerce_ccavenue_transaction($order, $payment_method, $order_status);
+    return drupal_set_message(t('Thank you for shopping with us.However,the transaction has been declined.'));
+    // Here you need to put in the routines for a failed.
+    // Transaction such as sending an email to customer.
+    // Setting database status etc etc.
+  }
+  else {
+    watchdog('commerce_ccavenue', $message, NULL, WATCHDOG_ERROR);
+    return drupal_set_message(t('Security Error. Illegal access detected. We will store your IP address.'), ERROR);
+  }
+}
+/**
+ * CCAvenue finish payment
+ */
+function commerce_ccavenue_transaction($order, $payment_method, $order_status) {
+  $wrapper = entity_metadata_wrapper('commerce_order', $order);
+  $currency = $wrapper->commerce_order_total->currency_code->value();
+  $amount = $wrapper->commerce_order_total->amount->value();
+  $transaction = commerce_payment_transaction_new('commerce_ccavenue', $order->order_id);
+  $transaction->instance_id = isset($payment_method['instance_id']) ? $payment_method['instance_id'] : '';
+  $transaction->amount = $amount;
+  $transaction->currency_code = $currency;
+  // Succeessful.
+  if($order_status === "Success") {
+    $transaction->remote_status = t('Success');
+    $transaction->message = t('Payment received at') . ' ' . date("d-m-Y H:i:s", REQUEST_TIME);
+    $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
+  }
+  elseif($order_status === "Aborted"){
+    // Batch process - Aborted orders.
+    $transaction->remote_status = t('Aborted');
+    $transaction->message = t('Payment pending at') . ' ' . date("d-m-Y H:i:s", REQUEST_TIME);
+    $transaction->status = COMMERCE_PAYMENT_STATUS_PENDING;
+  }
+  elseif($order_status === "Failure"){
+    // Failed transaction.
+    $transaction->remote_status = t('Failure');
+    $transaction->message = t('Payment failed at') . ' ' . date("d-m-Y H:i:s", REQUEST_TIME);
+    $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
+  }
+  commerce_payment_transaction_save($transaction);
+}
+
+/**
+ * Get checksum.
+ */
+function _commerce_ccavenue_encrypt($plain_text, $key) {
+  $secret_key = _commerce_ccavenue_hextobin(md5($key));
+  $init_vector = pack("C*", 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f);
+  $open_mode = mcrypt_module_open(MCRYPT_RIJNDAEL_128, '', 'cbc', '');
+  $block_size = mcrypt_get_block_size(MCRYPT_RIJNDAEL_128, 'cbc');
+  $plain_pad = _commerce_ccavenue_pkcs5_pad($plain_text, $block_size);
+  if (mcrypt_generic_init($open_mode, $secret_key, $init_vector) != -1) {
+    $encrypted_text = mcrypt_generic($open_mode, $plain_pad);
+    mcrypt_generic_deinit($open_mode);
+  }
+  return bin2hex($encrypted_text);
+ }
+
+/**
+ * Get checksum.
+ */
+function _commerce_ccavenue_decrypt($encrypted_text, $key) {
+  $secret_key = _commerce_ccavenue_hextobin(md5($key));
+  $init_vector = pack("C*", 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f);
+  $encrypted_text = _commerce_ccavenue_hextobin($encrypted_text);
+  $open_mode = mcrypt_module_open(MCRYPT_RIJNDAEL_128, '', 'cbc', '');
+  mcrypt_generic_init($open_mode, $secret_key, $init_vector);
+  $decrypted_text = mdecrypt_generic($open_mode, $encrypted_text);
+  $decrypted_text = rtrim($decrypted_text, "\0");
+  mcrypt_generic_deinit($open_mode);
+  return $decrypted_text;
+ }
+
+function _commerce_ccavenue_pkcs5_pad($plain_text, $block_size) {
+  $pad = $block_size - (strlen($plain_text) % $block_size);
+  return $plain_text . str_repeat(chr($pad), $pad);
+ }
+/**
+ * Create helper function called _commerce_ccavenue_leftshift.
+ */
+function _commerce_ccavenue_hextobin($hex_string) {
+  $length = strlen($hex_string);
+  $bin_string = '';
+  $count = 0;
+  while($count < $length) {
+    $sub_string = substr($hex_string, $count, 2);
+    $packed_string = pack("H*", $sub_string);
+    if ($count == 0) {
+      $bin_string = $packed_string;
+    }
+    else {
+      $bin_string .= $packed_string;
+    }
+    $count += 2;
+  }
+  return $bin_string;
+}
+/**
+ * Returns CCAvenue icon image location.
+ */
+function _commerce_ccavenue_icons() {
+  $variable = array(
+    'path' => drupal_get_path('module', 'commerce_ccavenue') . '/images/' . 'ccavenue_home_logo.gif',
+    'title' => 'CCAvenue',
+    'alt' => 'CCAvenue',
+    'attributes' => array(
+      'class' => array('commerce-ccavenue-icon'),
+    ),
+  );
+  return theme('image', $variable);
+}

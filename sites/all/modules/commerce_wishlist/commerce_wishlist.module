@@ -1,0 +1,1273 @@
+<?php
+
+/**
+ * @file
+ * Provides a wish list for use in Drupal Commerce.
+ */
+
+/**
+ * The length of the hash that will be used for shared URLs.
+ */
+define('COMMERCE_WISHLIST_HASH_LENGTH', 8);
+
+/**
+ * Define wish list visibility states.
+ */
+define('COMMERCE_WISHLIST_VISIBILITY_PRIVATE', 0);
+define('COMMERCE_WISHLIST_VISIBILITY_PROTECTED', 1);
+define('COMMERCE_WISHLIST_VISIBILITY_PUBLIC', 2);
+
+/**
+ * Implements hook_menu().
+ */
+function commerce_wishlist_menu() {
+  $items = array();
+
+  $items['user/%user/wishlist/nojs/remove/%commerce_line_item'] = array(
+    'page callback' => 'commerce_wishlist_product_remove_page',
+    'page arguments' => array(5, 1),
+    'access callback' => 'commerce_wishlist_user_access',
+    'access arguments' => array(1, 'update'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['user/%user/wishlist/ajax/remove/%commerce_line_item'] = array(
+    'page callback' => 'commerce_wishlist_product_remove_ajax',
+    'page arguments' => array(5, 1),
+    'access callback' => 'commerce_wishlist_user_access',
+    'access arguments' => array(1, 'update'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['user/%user/wishlist/nojs/add/%commerce_product'] = array(
+    'page callback' => 'commerce_wishlist_product_add_page',
+    'page arguments' => array(5, 1),
+    'access callback' => 'commerce_wishlist_user_access',
+    'access arguments' => array(1, 'update'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['user/%user/wishlist/ajax/add/%commerce_product'] = array(
+    'page callback' => 'commerce_wishlist_product_add_ajax',
+    'page arguments' => array(5, 1),
+    'access callback' => 'commerce_wishlist_user_access',
+    'access arguments' => array(1, 'update'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['user/%user/wishlist'] = array(
+    'title callback' => 'commerce_wishlist_view_user_wishlist_title',
+    'title arguments' => array(1),
+    'page callback' => 'commerce_wishlist_view_user_wishlist',
+    'page arguments' => array(1),
+    'access arguments' => array('access content'),
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items['admin/commerce/config/wishlist'] = array(
+    'title' => 'Wishlist configuration',
+    'description' => 'Configure wish list',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_wishlist_admin_form'),
+    'access arguments' => array('configure wish lists'),
+    'file' => 'commerce_wishlist.admin.inc',
+  );
+
+  // Set up our sharing URL here. This can be configurable. We default to
+  // shared-wishlist/%. The code will automatically find the '%' and set the
+  // correct argument.
+  $sharing_url = str_replace('%', '%commerce_wishlist_hash', variable_get('commerce_wishlist_share_prefix', 'shared-wishlist/%'));
+  $sharing_url_argument = (int) array_search('%commerce_wishlist_hash', explode('/', $sharing_url));
+  $items[$sharing_url] = array(
+    'title callback' => 'commerce_wishlist_shared_wishlist_title',
+    'title arguments' => array($sharing_url_argument),
+    'page callback' => 'commerce_wishlist_view_shared_user_wishlist',
+    'page arguments' => array($sharing_url_argument),
+    'access arguments' => array('access content'),
+  );
+
+  return $items;
+}
+
+/**
+ * Generate a title for the shared wishlist page.
+ *
+ * @param object $wishlist
+ *   The wish list being displayed.
+ *
+ * @return string
+ *   The formatted title for the page. Usually includes the user's name.
+ */
+function commerce_wishlist_shared_wishlist_title($wishlist) {
+  $user = user_load($wishlist->uid);
+  return t("!username's wish list", array('!username' => format_username($user)));
+}
+
+/**
+ * Displayed a shared wishlist.
+ *
+ * @param object $wishlist
+ *   The wish list being displayed.
+ *
+ * @return string
+ *   The formatted output.
+ */
+function commerce_wishlist_view_shared_user_wishlist($wishlist) {
+  $wishlist_wrapper = entity_metadata_wrapper('commerce_order', $wishlist);
+  if (commerce_line_items_quantity($wishlist_wrapper->commerce_line_items, commerce_product_line_item_types()) > 0) {
+    // Return the wishlist page.
+    return commerce_embed_view('commerce_wishlist_page', 'default', array($wishlist->order_id));
+  }
+
+  // Page is empty.
+  return theme('commerce_wishlist_empty_page', array('account' => user_load($wishlist->uid)));
+}
+
+/**
+ * Page callback for viewing a wish list.
+ *
+ * @param object $wishlist_user
+ *   The user for which to show a wish list.
+ *
+ * @return mixed
+ *   Rendered page or response code.
+ */
+function commerce_wishlist_view_user_wishlist($wishlist_user) {
+  global $user;
+  // Get the default wishlist.
+  $wishlist = commerce_wishlist_order_load($wishlist_user->uid);
+
+  // Can this user view the wish list? Also, allow a user if there is no wish
+  // list defined but the logged in user is the one accessing the page.
+  if (!commerce_wishlist_user_access($user, 'view', $wishlist) && !empty($wishlist) && $user->uid != $wishlist_user->uid) {
+    return MENU_ACCESS_DENIED;
+  }
+
+  // If not, then return an empty page.
+  if ($wishlist !== FALSE) {
+    $wishlist_wrapper = entity_metadata_wrapper('commerce_order', $wishlist);
+    if (commerce_line_items_quantity($wishlist_wrapper->commerce_line_items, commerce_product_line_item_types()) > 0) {
+      // Return the wishlist page.
+      return commerce_embed_view('commerce_wishlist_page', 'default', array($wishlist->order_id));
+    }
+  }
+
+  // Page is empty.
+  return theme('commerce_wishlist_empty_page', array('account' => $wishlist_user));
+}
+
+/**
+ * Create the title for the wish list page.
+ *
+ * @param object $wishlist_user
+ *   The owner of the wish list.
+ *
+ * @return string
+ *    The title for the wish list.
+ */
+function commerce_wishlist_view_user_wishlist_title($wishlist_user) {
+  global $user;
+
+  if ($user->uid != $wishlist_user->uid) {
+    return t("!user's wish list", array('!user' => format_username($wishlist_user)));
+  }
+  else {
+    return t('Wish list');
+  }
+}
+
+/**
+ * Helper function to determine a wishlist's usability.
+ */
+function commerce_wishlist_is_public($wishlist) {
+  if (!empty($wishlist->commerce_wishlist_visibility[LANGUAGE_NONE][0]['value'])
+      && $wishlist->commerce_wishlist_visibility[LANGUAGE_NONE][0]['value'] == '2') {
+    return TRUE;
+  }
+  return FALSE;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function commerce_wishlist_permission() {
+  return array(
+    'view active wish lists' => array(
+      'title' => t('View active wish lists'),
+      'description' => t('Allows a user to see wish lists of other active users.'),
+    ),
+    'manage own wish list' => array(
+      'title' => t('Manage own wish list'),
+      'description' => t('Allows a user to see and manage their own wish list.'),
+    ),
+    'view any wish list' => array(
+      'title' => t('View any wish list'),
+      'description' => t('Allows a user to see any wish list.'),
+    ),
+    'administer wish lists' => array(
+      'title' => t('Administer wish list'),
+      'description' => t('Allows users to perform any action on wishlists. <em>Warning: Give to trusted roles only; this permission has security implications.</em>'),
+    ),
+    'configure wish lists' => array(
+      'title' => t('Configure wish lists'),
+      'description' => t('Change wish list configuration options.'),
+    ),
+  );
+}
+
+/**
+ * Returns TRUE if the order is a wish list.
+ *
+ * @param object $order
+ *   The order being considered.
+ *
+ * @return bool
+ *   Whether or not the order is a wish list.
+ */
+function commerce_wishlist_order_is_wishlist($order) {
+  return $order->status == 'wishlist';
+}
+
+/**
+ * Implements hook_theme().
+ */
+function commerce_wishlist_theme($existing, $type, $theme, $path) {
+  // Themable elements.
+  return array(
+    'commerce_wishlist_product_add_link' => array(
+      'variables' => array('product_id' => NULL, 'user' => NULL),
+    ),
+    'commerce_wishlist_already_in_wishlist_link' => array(
+      'variables' => array('user_id' => NULL),
+    ),
+    'commerce_wishlist_added_to_wishlist_link' => array(
+      'variables' => array('user_id' => NULL, 'product' => NULL),
+    ),
+    'commerce_wishlist_user_wishlist_page_title' => array(
+      'variables' => array('account' => NULL),
+    ),
+    'commerce_wishlist_share_wishlist' => array(
+      'template' => 'commerce-wishlist-share-wishlist',
+      'path' => drupal_get_path('module', 'commerce_wishlist') . '/templates',
+      'variables' => array(
+        'account' => NULL,
+      ),
+    ),
+    'commerce_wishlist_empty_page' => array(
+      'template' => 'commerce-wishlist-empty-page',
+      'path' => drupal_get_path('module', 'commerce_wishlist') . '/templates',
+      'variables' => array(
+        'account' => NULL,
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function commerce_wishlist_form_alter(&$form, &$form_state, $form_id) {
+  global $user;
+
+  if ($form_id == 'commerce_order_ui_order_form') {
+    if (!commerce_wishlist_order_is_wishlist($form_state['commerce_order'])) {
+      $form['commerce_wishlist_visibility']['#access'] = FALSE;
+    }
+  }
+
+  if (strstr($form_id, 'commerce_cart_add_to_cart_form')) {
+    // Check if the product is disabled.
+    if (isset($form['submit']['#attributes']['disabled']) && ($form['submit']['#attributes']['disabled'] == 'disabled')) {
+      return;
+    }
+
+    // Make sure that this product is allowed.
+    if (!in_array($form_state['default_product']->type, array_filter(variable_get('commerce_wishlist_product_types', array())))) {
+      return;
+    }
+
+    $product_id = $form_state['default_product']->product_id;
+
+    // Look for the presence of the wish list line item to know if we are in the
+    // view or if we are in a regular form. We know that it's already in the
+    // wishlist because we're viewing the wishlist now if it's present. Set up
+    // the form submit functionality based on the configuration.
+    if (isset($form_state['build_info']['args'][2]['wish_list_line_item'])) {
+      // Get user ID from the URL. The reason we cannot use menu_get_object()
+      // here is that the argument is not defined using hook_menu() and the
+      // user ID is not recognized as %user in menu router.
+      if ($form_state['build_info']['args'][0]->data['context']['view']['remove_from_wishlist']) {
+        $form['#submit'][] = 'commerce_wishlist_add_to_cart_remove';
+      }
+      return;
+    }
+
+    // If it's already in the wishlist, show the already in wishlist link.
+    // Otherwise, show the button or link as configured.
+    if (commerce_wishlist_user_has_product_in_wishlist($product_id)) {
+      $form['add_to_wishlist'] = array(
+        '#markup' => theme('commerce_wishlist_already_in_wishlist_link', array('user_id' => $user->uid)),
+        '#weight' => variable_get('commerce_wishlist_weight', 0),
+      );
+    }
+    elseif (variable_get('commerce_wishlist_element', 'button') == 'button') {
+      $form += commerce_wishlist_add_form();
+    }
+    else {
+      // Add the "Add to wishlist" link to the form.
+      $form['add_to_wishlist'] = array(
+        '#markup' => theme('commerce_wishlist_product_add_link', array('product_id' => $product_id, 'user' => $user)),
+        '#weight' => variable_get('commerce_wishlist_weight', 0),
+      );
+    }
+  }
+
+  if ($form_id == 'user_login' && !empty($_GET['wishlist_product'])) {
+    $_SESSION['commerce_wishlist']['product_id'] = check_plain($_GET['wishlist_product']);
+  }
+}
+
+/**
+ * Implements hook_commerce_checkout_complete().
+ */
+function commerce_wishlist_commerce_checkout_complete($order) {
+  // Loop through all line items.
+  foreach ($order->commerce_line_items[LANGUAGE_NONE] as $order_line_item) {
+    $line_item = commerce_line_item_load($order_line_item['line_item_id']);
+    // In order to avoid locking this to only line items of type "product", we
+    // will check only if the line item has wishlist user IDs defined in the
+    // data storage.
+    if (isset($line_item->data['wishlist_products']) && count($line_item->data['wishlist_products'])) {
+      foreach ($line_item->data['wishlist_products'] as $wishlist_product) {
+        // Invoke appropriate event.
+        $account = user_load($wishlist_product['user_id']);
+        $product = commerce_product_load($wishlist_product['product_id']);
+        $node    = node_load($wishlist_product['node_id']);
+        rules_invoke_event('commerce_wishlist_event_product_purchased', $account, $product, $node, $order);
+      }
+    }
+  }
+}
+
+/**
+ * Form callback: Removes a product from a wish list.
+ */
+function commerce_wishlist_add_to_cart_remove($form, &$form_state) {
+  if (isset($form_state['line_item']->data['context']['view']['wish_list_line_item'])) {
+    $line_item = $form_state['context']['wish_list_line_item'];
+
+    commerce_wishlist_product_remove($line_item->commerce_product[LANGUAGE_NONE][0]['product_id']);
+  }
+}
+
+/**
+ * Implements hook_views_api().
+ */
+function commerce_wishlist_views_api() {
+  return array(
+    'api'  => 3,
+    'path' => drupal_get_path('module', 'commerce_wishlist') . '/includes/views',
+  );
+}
+
+/**
+ * Implements hook_views_pre_render().
+ */
+function commerce_wishlist_views_pre_render(&$view) {
+  if ($view->name == 'wishlist' && $view->current_display == 'commerce_wishlist_user') {
+    // Sanity check, in case something has been changed in the original view.
+    if (isset($view->args[0])) {
+      // Load full user account of wishlist owner.
+      $account = user_load($view->args[0]);
+      // Update view title.
+      $view->build_info['title'] = theme('commerce_wishlist_user_wishlist_page_title', array('account' => $account));
+    }
+  }
+}
+
+/**
+ * Implements hook_block_info().
+ */
+function commerce_wishlist_block_info() {
+  $blocks['share'] = array(
+    'info' => t('Share Wishlist'),
+    'visibility' => BLOCK_VISIBILITY_LISTED,
+    'region' => 'sidebar_first',
+    'status' => TRUE,
+    'pages' => 'user/*/wishlist',
+  );
+
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_view().
+ */
+function commerce_wishlist_block_view($delta = '') {
+  global $user;
+
+  $block = array();
+
+  switch ($delta) {
+    case 'share':
+      $wishlist_user = menu_get_object('user');
+      $wishlist = commerce_wishlist_order_load($wishlist_user->uid);
+
+      if (!empty($wishlist) && commerce_wishlist_user_access($user, 'update', $wishlist)) {
+        $block['subject'] = t('Share my wish list');
+        $block['content'] = drupal_get_form('commerce_wishlist_share', $wishlist);
+      }
+
+      break;
+  }
+
+  return $block;
+}
+
+/**
+ * Form callback: Wishlist sharing.
+ */
+function commerce_wishlist_share($form, &$form_state, $wishlist) {
+  $form_state['wishlist'] = $wishlist;
+
+  $state = empty($wishlist->commerce_wishlist_visibility[LANGUAGE_NONE][0]['value']) ? 0 : $wishlist->commerce_wishlist_visibility[LANGUAGE_NONE][0]['value'];;
+  $account = user_load($wishlist->uid);
+
+  $form = array();
+
+  switch ($state) {
+    // Private visibility.
+    case COMMERCE_WISHLIST_VISIBILITY_PRIVATE:
+      $form['message'] = array(
+        '#markup' => t('Your wish list is private and can only be viewed by you.'),
+      );
+      break;
+
+    // Protected visibility.
+    case COMMERCE_WISHLIST_VISIBILITY_PROTECTED:
+      $form['message'] = array(
+        '#markup' => t('Your wish list is protected and can be viewed only by visiting this URL: !url', array(
+          '!url' => l(t("!user's wish list", array('!user' => format_username($account))), url(commerce_wishlist_get_wishlist_url($wishlist), array('absolute' => TRUE))),
+        )),
+      );
+      break;
+
+    // Public visibility.
+    case COMMERCE_WISHLIST_VISIBILITY_PUBLIC:
+      $form['message'] = array(
+        '#markup' => t('Your wish list is public and can be viewed by everyone.'),
+      );
+  }
+
+  $form['message']['#weight'] = -10;
+
+  field_attach_form('commerce_order', $wishlist, $form, $form_state, NULL, array(
+    'field_name' => 'commerce_wishlist_visibility',
+  ));
+
+  $form['commerce_wishlist_visibility'][LANGUAGE_NONE]['#title'] = t('Set wish list to');
+  unset($form['commerce_wishlist_visibility'][LANGUAGE_NONE]['#description']);
+
+  $form['actions'] = array(
+    '#type' => 'actions',
+  );
+
+  $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save'),
+  );
+
+  return $form;
+}
+
+/**
+ * Submit handler: sharing options.
+ */
+function commerce_wishlist_share_submit($form, &$form_state) {
+  $wishlist = &$form_state['wishlist'];
+
+  $previous_state = $wishlist->commerce_wishlist_visibility[LANGUAGE_NONE][0]['value'];
+  field_attach_submit('commerce_order', $wishlist, $form, $form_state);
+  $new_state = $wishlist->commerce_wishlist_visibility[LANGUAGE_NONE][0]['value'];
+
+  // If the state has changed, we need to update the URL.
+  if ($previous_state != $new_state) {
+    switch ($new_state) {
+      // Private visibility. Note that we're not removing the "Protected" if the
+      // visibility transitions to public, since we wouldn't want to break it.
+      case COMMERCE_WISHLIST_VISIBILITY_PRIVATE:
+        // Remove the existing wishlist URL.
+        commerce_wishlist_remove_wishlist_url($wishlist);
+        break;
+
+      case COMMERCE_WISHLIST_VISIBILITY_PROTECTED:
+        // Create or replace the existing URL.
+        commerce_wishlist_add_wishlist_url($wishlist);
+
+    }
+  }
+
+  commerce_order_save($form_state['wishlist']);
+}
+
+/**
+ * Already in cart link theme callback.
+ */
+function theme_commerce_wishlist_already_in_wishlist_link(&$variables) {
+  return t('Already in <a class="in-wishlist" href="@url">your wish list</a>.', array(
+    '@url' => url('user/' . $variables['user_id'] . '/wishlist'),
+  ));
+}
+
+/**
+ * Added to cart link theme callback.
+ */
+function theme_commerce_wishlist_added_to_wishlist_link(&$variables) {
+  return t('Added to <a class="in-wishlist" href="@url">your wish list</a>.', array(
+    '@title' => $variables['product']->title,
+    '@url' => url('user/' . $variables['user_id'] . '/wishlist'),
+  ));
+}
+
+/**
+ * Add to wishlist theme callback.
+ */
+function theme_commerce_wishlist_product_add_link($variables) {
+  $user = $variables['user'];
+  $product_id = $variables['product_id'];
+
+  $url = 'user/' . $user->uid . '/wishlist/nojs/add/' . $product_id;
+  $params = array(
+    'attributes' => array(
+      'class' => array('ajax' => 'use-ajax', 'add-to-wishlist'),
+      'id' => 'add-wishlist-' . $product_id,
+    ),
+    'query' => array(
+      'destination' => $_GET['q'],
+      'token' => drupal_get_token(),
+    ),
+  );
+
+  // If the current user is not logged in, build a different link that
+  // points to the login page and lists all other relevant details
+  // (product ID, node ID and original URL) in query string.
+  if ($user->uid == 0) {
+    unset($params['attributes']['class']['ajax'], $params['query']);
+    $params['query']['wishlist_product'] = $product_id;
+    $params['query']['destination'] = $_GET['q'];
+    $url = 'user/login';
+  }
+  return l(t('Add to Wishlist'), $url, $params);
+}
+
+/**
+ * Theme callback for page title on user's wishlist page.
+ *
+ * The reason this is created as a separate themeable function is that depending
+ * on the site configuration and the way user profiles are set, it would make
+ * more sense to use user's first or first + last names, or even full name saved
+ * in commerce customer profile. This way even themes can override the output.
+ */
+function theme_commerce_wishlist_user_wishlist_page_title(&$variables) {
+  global $user;
+  if ($user->uid == $variables['account']->uid) {
+    return t('My Wish list');
+  }
+  return t("@name's Wish list", array('@name' => $variables['account']->name));
+}
+
+/**
+ * Determine whether the user has a privilege to manage a wish list.
+ *
+ * @param object $account
+ *   The account whose wishlist will be affected by some action. (e.g. viewed or
+ *   updated).
+ * @param string $operation
+ *   One of "view" or "update" based on the action.
+ * @param object|null $wishlist
+ *   The wishlist to be affected. If the param is null, the default wishlist for
+ *   a user will be loaded.
+ *
+ * @return bool
+ *   TRUE if allowed, FALSE if not.
+ */
+function commerce_wishlist_user_access($account, $operation, $wishlist = NULL) {
+  global $user;
+  // Allow administrators to edit any wishlist on the site.
+  if (user_access('administer wish lists')) {
+    return TRUE;
+  }
+
+  // Users can always view their own wish list. Or, a user can view any wish
+  // list if they have the correct permission.
+  if ($operation == 'view') {
+    if ((!empty($wishlist->uid) && $account->uid == $wishlist->uid) || (empty($wishlist) && $account->uid == $user->uid) || user_access('view any wish list', $user) || user_access('administer wish lists', $user) || commerce_wishlist_is_public($wishlist)) {
+      return TRUE;
+    }
+    return FALSE;
+  }
+
+  if ($operation == 'update') {
+    if ($account->uid == $user->uid && user_access('manage own wish list')) {
+      return TRUE;
+    }
+    if (!is_object($wishlist)) {
+      if ($wishlist = commerce_wishlist_order_load($account->uid) === FALSE) {
+        return user_access('manage any wish list');
+      }
+    }
+    // Check if the wish list owner and the user who is trying to edit the wish
+    // list are the same, and if they have permission to manage own wish list.
+    return ($account->uid == $user->uid
+      && user_access('manage own wish list')
+      && $wishlist->uid == $account->uid);
+  }
+
+  return FALSE;
+}
+
+/**
+ * Determine whether the user has a privilege to view a wish list.
+ */
+function commerce_wishlist_user_wishlist_access($acting_user, $view) {
+  if (!is_object($acting_user)) {
+    global $user;
+    $acting_user = user_load($user->uid);
+  }
+  // Get the wishlist owner.
+  if (arg(1) && is_numeric(arg(1))) {
+    $wishlist_owner = user_load(arg(1));
+  }
+  if ($wishlist_owner) {
+    // Wishlist administrators.
+    if (user_access('administer wish lists')) {
+      return TRUE;
+    }
+    // If the user can view any active wishlist, stop here and grant access.
+    if (user_access('view active wish lists', $acting_user)) {
+      return TRUE;
+    }
+    // Check if the user can manage own wishlist AND if he is on the page of his
+    // own wish list.
+    if (user_access('manage own wish list', $acting_user)) {
+      return ($acting_user->uid == $wishlist_owner->uid);
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+ * Form submit handler: wishlist product added to the cart.
+ */
+function commerce_wishlist_product_added_to_cart($form, &$form_state) {
+  // Load the line item, add wishlist user ID in additional data, and then save
+  // back the changes.
+  $line_item = commerce_line_item_load($form_state['line_item']->line_item_id);
+  $line_item->data['wishlist_products'][] = array(
+    'node_id'    => $form_state['values']['wishlist_nid'],
+    'user_id'    => $form_state['values']['wishlist_uid'],
+    'product_id' => $form_state['values']['product_id'],
+  );
+
+  commerce_line_item_save($line_item);
+
+  $account = user_load($form_state['values']['wishlist_uid']);
+  $product = commerce_product_load($form_state['values']['product_id']);
+  $wishlist = commerce_wishlist_order_load($account->uid);
+
+  rules_invoke_event('commerce_wishlist_product_add_to_cart', $account, $product, $wishlist);
+}
+
+/**
+ * Form callback for adding a new button to an add to cart form.
+ */
+function commerce_wishlist_add_form() {
+
+  $form['add_to_wishlist'] = array(
+    '#type' => 'submit',
+    '#value' => t('Add to Wishlist'),
+    '#weight' => variable_get('commerce_wishlist_weight', 0),
+    '#name' => 'commerce-wishlist-add-product',
+    '#attributes' => array('class' => array('commerce-wishlist')),
+    '#validate' => array('commerce_wishlist_add_form_validate'),
+    '#submit' => array('commerce_wishlist_add_form_submit'),
+  );
+
+  return $form;
+}
+
+/**
+ * Validate callback for commerce_cart_add_to_cart_form().
+ */
+function commerce_wishlist_add_form_validate($form, &$form_state) {
+  global $user;
+  if ($form_state['triggering_element']['#name'] == 'commerce-wishlist-add-product') {
+    // Verify if the user is logged in.
+    if (!$user->uid) {
+      $_SESSION['commerce_wishlist']['product_id'] = $form_state['values']['product_id'];
+      form_set_error('add_to_wishlist',
+        t('Please <a href="@login">log in</a> or <a href="@register">register</a> to add this product to your wish list.',
+          array(
+            '@login' => url('user/login', array('query' => drupal_get_destination())),
+            '@register' => url('user/register'),
+          )
+        )
+      );
+    }
+
+    if (commerce_wishlist_user_has_product_in_wishlist($form_state['values']['product_id'])) {
+      form_set_error('add_to_wishlist', t('This product is already in your wish list.'));
+    }
+  }
+}
+
+/**
+ * Implements hook_user_login().
+ */
+function commerce_wishlist_user_login(&$edit, $account) {
+  // If someone has a product ID in their session, go ahead and add it to their
+  // wish list when the log in.
+  if (!empty($_SESSION['commerce_wishlist']['product_id'])) {
+    $product_id = $_SESSION['commerce_wishlist']['product_id'];
+    $product = commerce_product_load($product_id);
+    if (!commerce_wishlist_user_has_product_in_wishlist($product_id, $account->uid)) {
+      commerce_wishlist_product_add($product, NULL, $account->uid);
+      drupal_set_message(t('Product <em>@product</em> has been added to <a href="@url">your wish list</a>.', array(
+        '@product' => $product->title,
+        '@url' => url('user/' . $account->uid . '/wishlist', array('absolute' => TRUE)),
+      )));
+    }
+    else {
+      drupal_set_message(t('Product <em>@product</em> was already in <a href="@url">your wish list</a>.', array(
+        '@product' => $product->title,
+        '@url' => url('user/' . $account->uid . '/wishlist', array('absolute' => TRUE)),
+      )), 'error');
+    }
+  }
+  unset($_SESSION['commerce_wishlist']);
+}
+
+/**
+ * Implements hook_contextual_links_view_alter().
+ */
+function commerce_wishlist_menu_contextual_links_alter(&$links, $router_item, $root_path) {
+  if ($router_item['path'] == 'admin/commerce/orders/%') {
+    if (commerce_wishlist_order_is_wishlist($router_item['page_arguments'][0])) {
+      unset($links['commerce-order-payment']);
+    }
+  }
+}
+
+/**
+ * Submit callback for commerce_cart_add_to_cart_form().
+ *
+ * Override of commerce_cart_add_to_cart_form_submit to add wishlist additional
+ * functionality.
+ */
+function commerce_wishlist_add_form_submit($form, &$form_state) {
+  global $user;
+
+  $product = commerce_product_load($form_state['values']['product_id']);
+  commerce_wishlist_product_add($product, NULL, NULL, $form_state['line_item']->data['context']['display_path']);
+
+  drupal_set_message(t('Product <em>@product</em> has been added to <a href="@url">your wish list</a>.', array(
+    '@product' => $product->title,
+    '@url' => url('user/' . $user->uid . '/wishlist', array('absolute' => TRUE)),
+  )));
+}
+
+/**
+ * Page callback: handle deletion of a wish list item.
+ *
+ * @param object $line_item
+ *   The wish list product line item.
+ * @param object $account
+ *   The account.
+ */
+function commerce_wishlist_product_remove_page($line_item, $account) {
+  commerce_wishlist_product_remove_line_item($line_item, $account);
+  drupal_goto();
+}
+
+/**
+ * Ajax callback to handle deletion of wish list item.
+ *
+ * @param object $line_item
+ *   The wish list product line item.
+ * @param object $account
+ *   The account.
+ */
+function commerce_wishlist_product_remove_ajax($line_item, $account) {
+  $product_id = commerce_product_load($line_item->commerce_product[LANGUAGE_NONE][0]['product_id']);
+  commerce_wishlist_product_remove_line_item($line_item, $account);
+  $link = theme('commerce_wishlist_product_add_link', array('product_id' => $product_id, 'user' => $account));
+  $commands = array(ajax_command_replace('a#add-wishlist-' . $product_id, $link));
+  ajax_deliver(array('#type' => 'ajax', '#commands' => $commands));
+}
+
+/**
+ * Menu callback: Perform various actions (add to wishlist etc).
+ */
+function commerce_wishlist_product_add_page($product, $user) {
+  if (isset($_GET['token']) && drupal_valid_token($_GET['token'])) {
+    if (!commerce_wishlist_user_has_product_in_wishlist($product->product_id, $user->uid)) {
+      $display_path = '';
+      if ($_GET['destination'] != '') {
+        $display_path = $_GET['destination'];
+      }
+      commerce_wishlist_product_add($product, NULL, $user->uid, $display_path);
+    }
+  }
+  drupal_goto();
+}
+
+/**
+ * Page callback: Ajax product add.
+ */
+function commerce_wishlist_product_add_ajax($product, $user) {
+  if (!commerce_wishlist_user_has_product_in_wishlist($product->product_id, $user->uid)) {
+    $display_path = '';
+    if ($_GET['destination'] != '') {
+      $display_path = $_GET['destination'];
+    }
+    commerce_wishlist_product_add($product, NULL, $user->uid, $display_path);
+  }
+
+  $link = theme('commerce_wishlist_added_to_wishlist_link', array('user_id' => $user->uid));
+  $commands = array(ajax_command_replace('a#add-wishlist-' . $product->product_id, $link));
+  ajax_deliver(array('#type' => 'ajax', '#commands' => $commands));
+}
+
+/**
+ * Loads the default wishlist order for the specified user.
+ *
+ * @param int $uid
+ *   The uid of the customer whose wishlist to load.
+ *
+ * @return bool|object
+ *   The fully loaded shopping cart order or FALSE if nonexistent.
+ */
+function commerce_wishlist_order_load($uid = 0) {
+  if ($uid == 0) {
+    global $user;
+    $uid = $user->uid;
+  }
+
+  if ($uid == 0) {
+    return FALSE;
+  }
+
+  // Retrieve the order ID for the specified user's current shopping cart.
+  $order_id = commerce_wishlist_order_id($uid);
+
+  // If a valid cart order ID exists for the user, return it now.
+  if (!empty($order_id)) {
+    return commerce_order_load($order_id);
+  }
+
+  return FALSE;
+}
+
+/**
+ * Returns the current wish list order ID for the given user.
+ *
+ * @param int $uid
+ *   The uid of the customer whose wishlist to load. If left 0, attempts to load
+ *   an anonymous order from the session.
+ *
+ * @return int
+ *   The requested cart order ID or FALSE if none was found.
+ */
+function commerce_wishlist_order_id($uid = 0) {
+  // Cart order IDs will be cached keyed by $uid.
+  $cart_order_ids = &drupal_static(__FUNCTION__);
+
+  // Cache the user's cart order ID if it hasn't been set already.
+  if (isset($cart_order_ids[$uid])) {
+    return $cart_order_ids[$uid];
+  }
+
+  // First let other modules attempt to provide a valid order ID for the given
+  // uid. Instead of invoking hook_commerce_cart_order_id() directly, we invoke
+  // it in each module implementing the hook and return the first valid order ID
+  // returned (if any).
+  foreach (module_implements('commerce_wishlist_order_id') as $module) {
+    $order_id = module_invoke($module, 'commerce_wishlist_order_id', $uid);
+
+    // If a hook said the user should not have a cart, that overrides any other
+    // potentially valid order ID. Return FALSE now.
+    if ($order_id === FALSE) {
+      $cart_order_ids[$uid] = FALSE;
+      return FALSE;
+    }
+
+    // Otherwise only return a valid order ID.
+    if (!empty($order_id) && is_int($order_id)) {
+      $cart_order_ids[$uid] = $order_id;
+      return $order_id;
+    }
+  }
+
+  // Create an array of valid shopping cart order statuses.
+  $status_ids = array('wishlist');
+
+  // If a customer uid was specified...
+  if ($uid) {
+    // Look for the user's most recent shopping cart order, although they
+    // should never really have more than one.
+    $cart_order_ids[$uid] = db_query('SELECT order_id FROM {commerce_order} WHERE uid = :uid AND status IN (:status_ids) ORDER BY order_id DESC', array(':uid' => $uid, ':status_ids' => $status_ids))->fetchField();
+  }
+
+  return $cart_order_ids[$uid];
+}
+
+/**
+ * Add a product to a wish list.
+ *
+ * @param object $product
+ *   The product entity being added to the wish list.
+ * @param object|null $wishlist
+ *   The wishlist it is being added to. Defaults to the user's primary wish
+ *   list.
+ * @param int|null $uid
+ *   The UID of the owner of the wish list. Defaults to the current user.
+ * @param string $display_path
+ *   The display path to attach to the new line item. This can be used for
+ *   linking the item to the original node that was shown when it was added.
+ *
+ * @return bool|object
+ *   FALSE if the product was not added, otherwise the new line item.
+ */
+function commerce_wishlist_product_add($product, $wishlist = NULL, $uid = NULL, $display_path = '') {
+  $line_item = commerce_product_line_item_new($product, 1);
+  $line_item_wrapper = entity_metadata_wrapper('commerce_line_item', $line_item);
+  $line_item_wrapper->commerce_display_path->set($display_path);
+
+  if ($uid === NULL) {
+    global $user;
+    $uid = $user->uid;
+  }
+
+  // First attempt to load the customer's shopping cart order.
+  if ($wishlist === NULL) {
+    $wishlist = commerce_wishlist_order_load($uid);
+  }
+
+  // If no wish list exists, create one now.
+  if (empty($wishlist)) {
+    $wishlist = commerce_wishlist_order_new($uid);
+  }
+
+  // Return if it's already in there.
+  if (commerce_wishlist_user_has_product_in_wishlist($product->product_id, $uid)) {
+    return FALSE;
+  }
+
+  // Set the incoming line item's order_id.
+  $line_item->order_id = $wishlist->order_id;
+
+  // Wrap the order for easy access to field data.
+  $wishlist_wrapper = entity_metadata_wrapper('commerce_order', $wishlist);
+
+  // Save the incoming line item now so we get its ID.
+  commerce_line_item_save($line_item);
+
+  // Add it to the order's line item reference value.
+  $wishlist_wrapper->commerce_line_items[] = $line_item;
+
+  // Save the updated order.
+  commerce_order_save($wishlist);
+  // Invoke the product add event with the newly saved or updated line item.
+  rules_invoke_all('commerce_wishlist_product_add', $wishlist, $product, $line_item);
+
+  // Return the line item.
+  return $line_item;
+}
+
+/**
+ * Creates a new wishlist order.
+ *
+ * @param int $uid
+ *   The UID of the owner of the new wish list.
+ * @param string $type
+ *   The order type to create. Defaults to 'commerce_order'.
+ *
+ * @return object
+ *   The new commerce order. It's visibility will be set to private.
+ */
+function commerce_wishlist_order_new($uid, $type = 'commerce_order') {
+  // Create the new order with the customer's uid and the cart order status.
+  $order = commerce_order_new($uid, 'wishlist', $type);
+  $order->log = t('Created a new wishlist order.');
+
+  // Save all wishlist as private by default.
+  $order->commerce_wishlist_visibility[LANGUAGE_NONE][0]['value'] = COMMERCE_WISHLIST_VISIBILITY_PRIVATE;
+
+  // Save it so it gets an order ID and return the full object.
+  commerce_order_save($order);
+
+  return $order;
+}
+
+/**
+ * Implements hook_commerce_cart_order_is_cart().
+ */
+function commerce_wishlist_commerce_cart_order_is_cart($order, &$is_cart) {
+  if (commerce_wishlist_order_is_wishlist($order)) {
+    return FALSE;
+  }
+}
+
+/**
+ * Returns whether or not a product is in a user's wish list.
+ *
+ * This module looks to see if a product exists in any of the user's wishlists.
+ * It does this by loading all of the orders that are a user has and looping
+ * through the line items.
+ *
+ * @param int $product_id
+ *   The product ID.
+ * @param int|null $uid
+ *   The UID of the user or NULL for the current user.
+ *
+ * @return bool
+ *   TRUE if the product exists, FALSE otherwise.
+ */
+function commerce_wishlist_user_has_product_in_wishlist($product_id, $uid = NULL, $wishlist = NULL) {
+  if ($uid === NULL) {
+    global $user;
+    $uid = $user->uid;
+  }
+
+  if ($uid === 0) {
+    return FALSE;
+  }
+
+  // Load all wish lists.
+  $a = new EntityFieldQuery();
+  $a->entityCondition('entity_type', 'commerce_order', '=')
+    ->propertyCondition('status', array('wishlist'), 'IN')
+    ->propertyCondition('uid', $uid, '=');
+
+  $results = $a->execute();
+
+  if (!isset($results['commerce_order'])) {
+    return FALSE;
+  }
+
+  foreach (commerce_order_load_multiple(array_keys($results['commerce_order'])) as $order) {
+    $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+    foreach ($order_wrapper->commerce_line_items as $wrapper_line_item) {
+      if (in_array('commerce_product', array_keys($wrapper_line_item->getPropertyInfo()))) {
+        if ($wrapper_line_item->commerce_product->product_id->value() == $product_id) {
+          return TRUE;
+        }
+      }
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * Removes a product from a user's wish list.
+ *
+ * If no wishlist is provided, it will grab the default wish list using
+ * commerce_wishlist_order_load(). If no account is provided, it will default to
+ * the logged in user.
+ *
+ * @param object $line_item
+ *   The product (line_item) to remove.
+ * @param object|null $account
+ *   The user object of the owner of the wish list.
+ * @param object|null $wishlist
+ *   The wishlist to remove the product from.
+ */
+function commerce_wishlist_product_remove_line_item($line_item, $account = NULL, $wishlist = NULL) {
+  if ($account === NULL) {
+    global $user;
+    $account = $user;
+  }
+
+  if ($account->uid === 0) {
+    return;
+  }
+
+  if ($wishlist === NULL) {
+    // Get the default wish list.
+    $wishlist = commerce_wishlist_order_load($account->uid);
+  }
+
+  if ($line_item->order_id != $wishlist->order_id) {
+    return;
+  }
+
+  $line_item_wrapper = entity_metadata_wrapper('commerce_line_item', $line_item);
+
+  rules_invoke_all('commerce_wishlist_product_remove', $line_item_wrapper->commerce_product->value(), $account, $wishlist);
+
+  // Remove the line item from the line item reference field.
+  commerce_entity_reference_delete($wishlist, 'commerce_line_items', 'line_item_id', $line_item->line_item_id);
+  commerce_line_item_delete($line_item->line_item_id);
+  commerce_order_save($wishlist);
+}
+
+/**
+ * Removes a product from a user's wish list.
+ *
+ * If no wishlist is provided, it will grab the default wish list using
+ * commerce_wishlist_order_load(). If no account is provided, it will default to
+ * the logged in user.
+ *
+ * @param object $product
+ *   The product to remove.
+ * @param int|null $account
+ *   The account of the owner of the wish list.
+ * @param object|null $wishlist
+ *   The wishlist to remove the product from.
+ */
+function commerce_wishlist_product_remove($product, $account = NULL, $wishlist = NULL) {
+  if ($account === NULL) {
+    global $user;
+    $account = $user;
+  }
+
+  if ($account->uid === 0) {
+    return;
+  }
+
+  if ($wishlist === NULL) {
+    // Get the default wish list.
+    $wishlist = commerce_wishlist_order_load($account->uid);
+  }
+
+  $wishlist_wrapper = entity_metadata_wrapper('commerce_order', $wishlist);
+
+  foreach ($wishlist_wrapper->commerce_line_items as $delta => $line_item_wrapper) {
+    if ($line_item_wrapper->commerce_product->product_id->value() === $product->product_id) {
+      $line_item = $line_item_wrapper->value();
+      break;
+    }
+    // No item was found.
+    return;
+  }
+
+  rules_invoke_all('commerce_wishlist_product_remove', $product, $account, $wishlist);
+
+  // Remove the line item from the line item reference field.
+  commerce_entity_reference_delete($wishlist, 'commerce_line_items', 'line_item_id', $line_item->line_item_id);
+  commerce_line_item_delete($line_item->line_item_id);
+  commerce_order_save($wishlist);
+}
+
+/**
+ * Return a wish list for a given hash.
+ *
+ * @param string $hash
+ *   The hash to load.
+ *
+ * @return bool|mixed
+ *   FALSE if no wish list was found, otherwise the commerce order object.
+ */
+function commerce_wishlist_hash_load($hash) {
+  $wishlist_id = db_select('commerce_wishlist_share', 'cws')
+    ->fields('cws', array('order_id'))
+    ->condition('url_hash', $hash)
+    ->execute()
+    ->fetchField();
+
+  if (!empty($wishlist_id)) {
+    return commerce_order_load($wishlist_id);
+  }
+
+  return FALSE;
+}
+
+/**
+ * Create and store a shareable URL for a given wish list.
+ *
+ * This function will create and store a wish list for a given wish list. It
+ * technically guarantees to create a unique URL for a given wish list with
+ * roughly 2 trillion possibilities.
+ *
+ * @param object $wishlist
+ *   The wish list object.
+ */
+function commerce_wishlist_add_wishlist_url($wishlist) {
+  // Remove if there already is one.
+  commerce_wishlist_remove_wishlist_url($wishlist);
+
+  // Avoid collisions.
+  do {
+    $hash_to_use = commerce_wishlist_generate_url_hash($wishlist);
+  } while (commerce_wishlist_hash_load($hash_to_use) !== FALSE);
+
+  db_insert('commerce_wishlist_share')
+    ->fields(array(
+      'order_id' => $wishlist->order_id,
+      'url_hash' => $hash_to_use,
+    ))
+    ->execute();
+
+  $url_hashes = &drupal_static('commerce_wishlist_order_hashes', array());
+  $url_hashes[$wishlist->order_id] = $hash_to_use;
+}
+
+/**
+ * Remove a wish list's shareable hash.
+ *
+ * @param object $wishlist
+ *   The wish list to have it's URL removed.
+ */
+function commerce_wishlist_remove_wishlist_url($wishlist) {
+  db_delete('commerce_wishlist_share')
+    ->condition('order_id', $wishlist->order_id)
+    ->execute();
+}
+
+/**
+ * Returns a shareable URL for a given wish list.
+ *
+ * @param object $wishlist
+ *   The wish list object.
+ *
+ * @return string
+ *   The shareable URL for the wishlist which uses the hash.
+ */
+function commerce_wishlist_get_wishlist_url($wishlist) {
+  $url_hashes = &drupal_static('commerce_wishlist_order_hashes', array());
+
+  if (empty($url_hashes[$wishlist->order_id])) {
+    $result = db_select('commerce_wishlist_share', 'cws')
+      ->fields('cws', array('url_hash'))
+      ->condition('order_id', $wishlist->order_id)
+      ->execute();
+
+    $url_hash = $result->fetchField(0);
+    $url_hashes[$wishlist->order_id] = $url_hash;
+  }
+  else {
+    $url_hash = $url_hashes[$wishlist->order_id];
+  }
+
+  if ($url_hash == '') {
+    return '';
+  }
+
+  $wishlist_url = str_replace('%', '%commerce_wishlist_hash', variable_get('commerce_wishlist_share_prefix', 'shared-wishlist/%'));
+  return url(str_replace('%commerce_wishlist_hash', $url_hash, $wishlist_url));
+}
+
+/**
+ * Generate a short URL "hash" for a given wish list.
+ *
+ * @param object $wishlist
+ *   The wish list object.
+ *
+ * @return string
+ *   A hash of 8 characters, in base36. Not guaranteed to be unique.
+ */
+function commerce_wishlist_generate_url_hash($wishlist) {
+  return substr(base_convert(hash('sha256', serialize(array(
+    $wishlist->order_id,
+    $wishlist->mail,
+    $wishlist->created,
+    $wishlist->changed,
+    time(),
+  ))), 16, 36), 0, COMMERCE_WISHLIST_HASH_LENGTH);
+}

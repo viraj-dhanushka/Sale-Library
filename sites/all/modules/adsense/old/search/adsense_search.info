@@ -1,0 +1,13 @@
+name = Search (old)
+description = AdSense for Search generator module. This module uses the 'old' code in which the user can select to search the entire Web or 1 to 3 user-defined domains.
+dependencies[] = adsense:adsense
+package = AdSense
+core = 7.x
+
+configure = admin/config/services/adsense/search
+
+; Information added by Drupal.org packaging script on 2019-04-30
+version = "7.x-1.13"
+core = "7.x"
+project = "adsense"
+datestamp = "1556634017"

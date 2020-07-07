@@ -1,0 +1,276 @@
+<?php
+
+/**
+ * @file
+ * Custom functionality for purging webform submissions.
+ */
+
+/**
+ * Implements hook_cron().
+ */
+function webform_purge_cron() {
+  // Is the webform purge function enabled in system settings?
+  $enabled = variable_get('webform_purge_enabled');
+  if ($enabled == 1) {
+
+    // Run once each day or on every cron run?
+    $run_once = variable_get('webform_purge_run_once');
+    if ($run_once == 1) {
+      // Run only once so find out if we need to run it yet today.
+      $query = db_query("SELECT `timestamp` FROM {watchdog} WHERE `type` = 'cron' ORDER BY `timestamp` DESC LIMIT 1");
+      $results = $query->fetch();
+      $cron_last = $results->timestamp;
+      $run = (date('ymd', $cron_last) != date('ymd')) ? TRUE : FALSE;
+    }
+    else {
+      $run = TRUE;
+    }
+
+    if ($run) {
+      // Construct timestamp for purging.
+      $days_to_retain = variable_get('webform_purge_days_to_retain');
+      $purge_timestamp = strtotime(date('Y-m-d H:i:s') . ' -' . $days_to_retain . ' day');
+
+      // Get the records elegible for purging.
+      $query = db_query('SELECT * FROM {webform_submissions} WHERE webform_submissions.submitted < :purge_timestamp', array(':purge_timestamp' => $purge_timestamp));
+      $rows = $query->fetchAll();
+
+      // If submissions found to purge, get on with it.
+      if (count($rows) > 0) {
+        $deleted = 0;
+        foreach ($rows as $row) {
+          $node = node_load($row->nid);
+          $submission = webform_menu_submission_load($row->sid, $row->nid);
+          webform_submission_delete($node, $submission);
+          $deleted++;
+        }
+        watchdog('webform_purge', 'Purged %total webform submissions.', array('%total' => $deleted));
+      }
+      else {
+        watchdog('webform_purge', 'No eligible webform submissions found to purge.', array());
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_help().
+ */
+function webform_purge_help($path, $arg) {
+  switch ($path) {
+    case 'admin/help#webform_purge':
+      $ret_val  = '<h3>' . t('About') . '</h3>';
+      $ret_val .= '<p>' . t('The Webform Purge module allows you to set up automated purging of Webform submissions on a daily rolling schedule. You select the number of days to retain and the module uses hook_cron to purge them during cron runs.') . '</p>';
+      $ret_val .= '<h3>' . t('Configuration') . '</h3>';
+      $ret_val .= '<p>' . t('Configure the settings in Administration » Configuration » Webform Purge:') . '</p>';
+      $ret_val .= '<ul>';
+      $ret_val .= '<li>' . t('Enable automated purging - This option enables the functionality of the module. If not checked, the purge function will not run.') . '</li>';
+      $ret_val .= '<li>' . t('Run only once per day - This option is used to limit the purge to just one cron run per day. Conversely if unchecked, it will execute with every cron run.') . '</li>';
+      $ret_val .= '<li>' . t('Days to retain - The number of days to retain submissions before they are purged.') . '</li>';
+      $ret_val .= '</ul>';
+
+      $ret_val .= '<h3>' . t('FAQ') . '</h3>';
+      $ret_val .= '<p>' . t('If expected entries are not purged, check the following:') . '</p>';
+      $ret_val .= '<ul>';
+      $ret_val .= '<li>' . t('Is the Enable automated purging checkbox checked?') . '</li>';
+      $ret_val .= '<li>' . t('Is the submission younger than the Days to retain?') . '</li>';
+      $ret_val .= '</ul>';
+
+      $ret_val .= '<h3>' . t('Troubleshooting') . '</h3>';
+      $ret_val .= '<p>' . t('Q - If I want to incrementally purge starting with a very old date and progress to my target date, do I have to run this across multiple days?') . '</p>';
+      $ret_val .= '<ul>';
+      $ret_val .= '<li>' . t('No, you can uncheck the "Run only once per day" option and then set a "Days to retain" at an initial high value and run the cron job. Repeat this with lower values until you achieve your target number of days to retain.') . '</li>';
+      $ret_val .= '</ul>';
+
+      $ret_val .= '<p>' . t('Q - How can I tell how many entries were purged?') . '</p>';
+      $ret_val .= '<ul>';
+      $ret_val .= '<li>' . t('Check the "Recent log messages" under the Reports tab for an informational entry from the webform_purge module.') . '</li>';
+      $ret_val .= '</ul>';
+
+      $ret_val .= '<h3>' . t('Module Resources') . '</h3>';
+      $ret_val .= '<p>' . t('For a full description of the module, visit the <a href="https://www.drupal.org/project/webform_purge" target="_blank">project page.</a>') . '</p>';
+      $ret_val .= '<p>' . t('To submit  <a href="https://www.drupal.org/project/issues/webform_purge" target="_blank">bug reports and feature suggestions, or to track changes.</a>') . '</p>';
+
+      break;
+
+    default:
+      $ret_val = '';
+      break;
+
+  }
+  return $ret_val;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function webform_purge_permission() {
+  return array(
+    'administer webform purges' => array(
+      'title' => t('Administer webform purges'),
+      'description' => t('Perform administrative tasks on webform purge functionality'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function webform_purge_menu() {
+  $items = array();
+
+  // Admin configuration group.
+  $items['admin/config/webform_purge'] = array(
+    'title' => 'Webform Purges',
+    'description' => 'Administer Webform Purges',
+    'access arguments' => array('administer webform purges'),
+  );
+
+  // Admin configuration - Settings.
+  $items['admin/config/webform_purge/manage'] = array(
+    'title' => 'Webform Purge settings',
+    'description' => 'Manage webform purge settings and configurations',
+    'access arguments' => array('administer webform purges'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('webform_purge_admin_settings_form'),
+  );
+  return $items;
+}
+
+/**
+ * Form callback for admin page.
+ */
+function webform_purge_admin_settings_form($node, &$form_state) {
+  // Add css to form.
+  $form['#attached']['css'] = array(
+    drupal_get_path('module', 'webform_purge') . '/webform_purge.css',
+  );
+
+  // Initialize variables.
+  $form = array();
+
+  // Admin configuration group.
+  $form['overview'] = array(
+    '#markup' => t('This interface allows administrators to manage the automated purging of webform submissions'),
+    '#prefix' => '<p>',
+    '#suffix' => '</p>',
+  );
+
+  $form['webform_purge_enabled'] = array(
+    '#title' => t('Enable automated purging'),
+    '#description' => t('When enabled, web form submissions will be purged after the specified number of days.'),
+    '#type' => 'checkbox',
+    '#default_value' => variable_get('webform_purge_enabled'),
+  );
+
+  $form['webform_purge_run_once'] = array(
+    '#title' => t('Run only once per day'),
+    '#description' => t('This will limit processing to the first cron run of each day to improve performance.'),
+    '#type' => 'checkbox',
+    '#default_value' => variable_get('webform_purge_run_once'),
+  );
+
+  $form['webform_purge_days_to_retain'] = array(
+    '#title' => t('Days to retain'),
+    '#description' => t('Number of days to retain form submission before deletion.'),
+    '#type' => 'textfield',
+    '#default_value' => variable_get('webform_purge_days_to_retain'),
+    '#required' => TRUE,
+  );
+
+  // Check if user has permission to view webforms results.
+  if (user_access('access all webform results')) {
+
+    // Build the form and provide shortcuts to the Weform results pages.
+    $header = array(t('Webform'), t('Submissions'), t('Oldest Date'));
+    $rows = array();
+
+    // Get active webforms.
+    $query = db_select('webform', 'w');
+    $query->join('node', 'n', 'w.nid = n.nid');
+    $query
+      ->fields('n', array('nid', 'title'))
+      ->condition('w.status', '1')
+      ->orderBy('n.title', 'ASC')
+      ->addTag('node_access');
+    $webforms = $query->execute();
+
+    foreach ($webforms as $webform) {
+      // Get the number of submissions for this webform.
+      $query = db_query('SELECT nid FROM {webform_submissions} WHERE webform_submissions.nid = :nid', array(':nid' => $webform->nid));
+      $rowcount = number_format($query->rowCount());
+
+      // Get the oldest date for this webform.
+      $query = db_query('SELECT MIN(webform_submissions.submitted) as oldest_date FROM {webform_submissions} WHERE webform_submissions.nid = :nid', array(':nid' => $webform->nid));
+      $submissions = $query->fetch();
+      $oldest_date = ($submissions->oldest_date == NULL) ? "-" : date('Y-m-d', $submissions->oldest_date);
+
+      // Construct the table row.
+      $row = array();
+      $row[] = array(
+        'data' => l($webform->title, '/node/' . $webform->nid . '/webform-results', array(
+          'attributes' => array('title' => t('View webform submissions')),
+        )),
+      );
+      $row[] = array(
+        'data' => $rowcount,
+      );
+      $row[] = array(
+        'data' => $oldest_date,
+      );
+      $rows[] = $row;
+    }
+
+    $form['form_list'] = array(
+      '#markup' => theme('table', array(
+        'caption' => t('List of current forms'),
+        'header' => $header,
+        'rows' => $rows,
+      )),
+    );
+
+  }
+  else {
+
+    // Inform user that detailed webform results are not available due to permissions.
+    $form['permission_error'] = array(
+      '#markup' => t('Webform results summary cannot be shown without "Access all webform results" permission.'),
+      '#prefix' => '<p>',
+      '#suffix' => '</p>',
+    );
+
+  }
+
+  return system_settings_form($form);
+}
+
+/**
+ * Validates webform purge admin form settings.
+ */
+function webform_purge_admin_settings_form_validate($form, &$form_state) {
+
+  // Shorten the input.
+  $days = $form_state['values']['webform_purge_days_to_retain'];
+
+  // Validate number of days to retain format.
+  if (!_webform_purge_validate_purge_days_to_retain($days)) {
+    form_set_error('webform_purge_days_to_retain', t('Invalid number of days to retain, must be a positive number'));
+  }
+}
+
+/**
+ * Determine if a value is in numeric format.
+ *
+ * @param string $value
+ *   The value to be tested.
+ *
+ * @return bool
+ *   TRUE if correctly formatted.
+ */
+function _webform_purge_validate_purge_days_to_retain($value) {
+
+  // Regular expression for validating number of days to retain.
+  $positive_number = '/^\d+$/';
+
+  return preg_match($positive_number, $value) ? TRUE : FALSE;
+}

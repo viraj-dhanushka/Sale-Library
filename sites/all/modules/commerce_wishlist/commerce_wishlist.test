@@ -1,0 +1,349 @@
+<?php
+
+/**
+ * @file
+ * Tests for Commerce Wishlist.
+ */
+
+/**
+ * Base class for commerce wishlist tests.
+ */
+class CommerceWishlistTestBase extends CommerceBaseTestCase {
+
+  /**
+   * Don't need most of default core modules.
+   */
+  protected $profile = 'minimal';
+
+  /**
+   * Dummy commerce_product and related product node.
+   */
+  protected $product;
+  protected $productNode;
+  protected $product2;
+  protected $productNode2;
+
+  /**
+   * User accounts for testing.
+   */
+  protected $storeAdmin;
+  protected $storeCustomer;
+
+  /**
+   * Allows sub-modules to define themselves for setup.
+   *
+   * @var string
+   */
+  protected $subModule;
+
+  /**
+   * Overrides CommerceBaseTestCase::permissionBuilder().
+   */
+  protected function permissionBuilder($set) {
+    $permissions = parent::permissionBuilder($set);
+
+    switch ($set) {
+      case 'store admin':
+        $permissions[] = 'configure wish lists';
+        break;
+
+      case 'store customer':
+        $permissions[] = 'manage own wish list';
+        break;
+
+    }
+
+    return $permissions;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function setUp() {
+    // Enable all commerce modules + commerce_wishlist.
+    $modules = parent::setUpHelper('all');
+
+    $modules[] = 'list';
+    $modules[] = 'commerce_wishlist';
+
+    parent::setUp($modules);
+
+    // User creation for different operations.
+    $this->storeAdmin = $this->createStoreAdmin();
+    $this->storeCustomer = $this->createStoreCustomer();
+
+    // Create a dummy product.
+    $this->product = $this->createDummyProduct('PROD-01', 'Product One', 1000);
+    $this->product2 = $this->createDummyProduct('PROD-02', 'Product Two', 2000);
+
+    // Create a dummy product display content type.
+    $this->createDummyProductDisplayContentType();
+
+    // Create a product display node.
+    $this->productNode = $this->createDummyProductNode(array(
+      $this->product->product_id,
+    ), 'Product One node');
+
+    $this->productNode2 = $this->createDummyProductNode(array(
+      $this->product2->product_id,
+    ), 'Product Two node');
+
+    // Set the default country to US.
+    variable_set('site_default_country', 'US');
+
+    // Set up the module so that we can see the effects.
+    variable_set('commerce_wishlist_element', 'button');
+    variable_set('commerce_wishlist_product_types', array('product' => 'product'));
+  }
+
+}
+
+/**
+ * Testing commerce wishlist UI and functionality.
+ */
+class CommerceWishlistTest extends CommerceWishlistTestBase {
+  /**
+   * Implementation of getInfo().
+   */
+  public static function getInfo() {
+    return array(
+      'name' => 'Wish list',
+      'description' => 'Test Wish list UI and functionality',
+      'group' => 'Commerce Wish list',
+    );
+  }
+
+  /**
+   * Test core commerce items.
+   */
+  public function testCommerceWishlistCore() {
+    $states = commerce_order_states();
+    $this->assertTrue(!empty($states['wishlist']), t('Wish list order state exists.'));
+    $statuses = commerce_order_statuses();
+    $this->assertTrue(!empty($statuses['wishlist']), t('Wish list order status exists.'));
+  }
+
+  /**
+   * Access to Commerce wish list admin.
+   */
+  public function testCommerceWishlistUi() {
+    // Login with store admin.
+    $this->drupalLogin($this->storeAdmin);
+    // Check the access to the profiles listing.
+    $this->drupalGet('admin/commerce/config/wishlist');
+    $this->assertResponse(200, 'The store admin has access to wish list configuration.');
+    $this->assertField('commerce_wishlist_weight', t('Weight field exists.'));
+    $this->assertField('commerce_wishlist_element', t('Element field exists.'));
+    $this->assertField('commerce_wishlist_product_types[product]', t('Product type checkbox exists.'));
+
+    // Login with customer.
+    $this->drupalLogin($this->storeCustomer);
+    // Check the access to the profiles listing.
+    $this->drupalGet('admin/commerce/config/wishlist');
+    $this->assertResponse(403, 'The store customer has no access to wish list configuration.');
+
+    // Test the UI.
+    $this->drupalGet('user/' . $this->storeCustomer->uid . '/wishlist');
+    $this->assertResponse(200, 'The customer can access the wish list view.');
+    $this->assertText('Nothing in your wish list.');
+
+    // Load a product page.
+    $this->drupalGet('node/' . $this->productNode->uid);
+    // Make sure Add to Wishlist is on the page.
+    $this->assertRaw('Add to Wishlist');
+    // Submit the button.
+    $this->drupalPost('node/' . $this->productNode->uid, array(), t('Add to Wishlist'));
+    // Upon refresh, the item should be in our wishlist.
+    $this->assertText('Already in your wish list.');
+    // Make sure our message shows up.
+    $this->assertRaw(t('Product <em>@product</em> has been added to <a href="@url">your wish list</a>.', array(
+      '@product' => $this->product->title,
+      '@url' => url('user/' . $this->storeCustomer->uid . '/wishlist', array('absolute' => TRUE)),
+    )), 'Added to wish list message is present.');
+
+    // Make sure the product is actually in the cart.
+    $this->drupalGet('user/' . $this->storeCustomer->uid . '/wishlist');
+    // Our remove link.
+    $this->assertLink('Remove');
+    // This form shouldn't have any form elements in it.
+    $this->assertNoText('Already in your wishlist.', 'Wish list form elements are not present.');
+    // Our product, linked to it's node, should be visible.
+    $this->assertLink($this->product->title);
+    $this->assertRaw(l($this->product->title, 'node/' . $this->productNode->nid), 'Item links to the original node.');
+
+    // Remove it from the wishlist.
+    $this->clickLink('Remove');
+    // Ensure that there are no items in the wishlist.
+    $this->assertText('Nothing in your wish list.', 'No more products in the listing.');
+  }
+
+  /**
+   * Anonymous usage of the Wish list module.
+   */
+  public function testCommerceWishlistAnonymousUi() {
+    $this->drupalLogout();
+    // Load a product page.
+    $this->drupalGet('node/' . $this->productNode->nid);
+    // Make sure Add to Wishlist is on the page.
+    $this->assertRaw('Add to Wishlist');
+    // Submit the button.
+    $edit = array(
+      'product_id' => 1,
+    );
+    $this->drupalPost($this->getUrl(), $edit, t('Add to Wishlist'));
+
+    $message = t('Please <a href="@login">log in</a> or <a href="@register">register</a> to add this product to your wish list.', array(
+      '@login' => url('user/login', array('query' => array('destination' => 'node/1'))),
+      '@register' => url('user/register'),
+    ));
+
+    $this->assertRaw($message, t('Error adding to wish list displayed.'));
+
+    $this->drupalLogin($this->storeCustomer);
+
+    $message = t('Product <em>@product</em> has been added to <a href="@url">your wish list</a>.', array(
+      '@product' => $this->product->title,
+      '@url' => url('user/' . $this->storeCustomer->uid . '/wishlist', array('absolute' => TRUE)),
+    ));
+
+    $this->assertRaw($message, t('Product added to wish list after login.'));
+
+    $this->drupalLogout();
+
+    // Check to see if the error will show when we try to add it again.
+    $this->drupalGet('node/' . $this->productNode->uid);
+    // Make sure Add to Wishlist is on the page.
+    $this->assertRaw('Add to Wishlist');
+    // Submit the button.
+    $edit = array(
+      'product_id' => 1,
+    );
+    $this->drupalPost($this->getUrl(), $edit, t('Add to Wishlist'));
+
+    $message = t('Please <a href="@login">log in</a> or <a href="@register">register</a> to add this product to your wish list.',
+      array(
+        '@login' => url('user/login', array('query' => array('destination' => 'node/1'))),
+        '@register' => url('user/register'),
+      )
+    );
+    $this->assertRaw($message, t('Error adding to wish list displayed.'));
+
+    $this->drupalLogin($this->storeCustomer);
+
+    $message = t('Product <em>@product</em> was already in <a href="@url">your wish list</a>.', array(
+      '@product' => $this->product->title,
+      '@url' => url('user/' . $this->storeCustomer->uid . '/wishlist', array('absolute' => TRUE)),
+    ));
+
+    $this->assertRaw($message, t('Product was already in the wish list.'));
+
+    $this->drupalGet('node/' . $this->productNode2->nid);
+
+    $this->assertRaw('Add to Wishlist');
+
+    $edit = array(
+      'product_id' => 2,
+    );
+    $this->drupalPost($this->getUrl(), $edit, t('Add to Wishlist'));
+
+    $message = t('Product <em>@product</em> has been added to <a href="@url">your wish list</a>.', array(
+      '@product' => $this->product2->title,
+      '@url' => url('user/' . $this->storeCustomer->uid . '/wishlist', array('absolute' => TRUE)),
+    ));
+
+    $this->assertRaw($message, t('Product added to wish list after login.'));
+
+    $this->drupalGet('user/' . $this->storeCustomer->uid . '/wishlist');
+
+    $this->assertText('Product One', t('Product one is listed.'));
+    $this->assertText('Product Two', t('Product two is listed.'));
+  }
+
+  public function testCommerceWishlistSharing() {
+    // Sets a standard path.
+    $wishlist_path = 'user/' . $this->storeCustomer->uid . '/wishlist';
+
+    // Create a wishlist for a store customer test.
+    $wishlist = commerce_wishlist_order_new($this->storeCustomer->uid);
+    commerce_wishlist_product_add($this->product, $wishlist, $this->storeCustomer->uid);
+    commerce_wishlist_product_add($this->product2, $wishlist, $this->storeCustomer->uid);
+
+    $this->drupalGet($wishlist_path);
+    $this->assertResponse(403, t('Wishlist is unavailable to the public.'));
+
+    // Log in with the wishlist user.
+    $this->drupalLogin($this->storeCustomer);
+
+    // Load the wish list page.
+    $this->drupalGet($wishlist_path);
+    $this->assertResponse(200, t('Wishlist is available to the customer.'));
+    $this->drupalGet($wishlist_path);
+    $this->assertText(t('Share my wish list'), t('Wish list sharing block is on the wish list page.'));
+    $this->assertText(t('Your wish list is private and can only be viewed by you.'), t('Wish list is private by default.'));
+    $this->assertField('commerce_wishlist_visibility[und]', t('Wish list sharing field is visible.'));
+
+    // Set our wish list to protected.
+    $this->drupalPost($wishlist_path, array('commerce_wishlist_visibility[und]' => 1), t('Save'));
+    $this->assertField('commerce_wishlist_visibility[und]', t('Wish list sharing field is visible.'));
+    $this->assertText(t('Your wish list is protected and can be viewed only by visiting this URL'), t('Wish list protected message shows up.'));
+    $elements = $this->xpath('//a[contains(@href, "shared-wishlist")]/@href');
+    $protected_path = (string) $elements[0];
+
+    // Make sure that it can't be accessed except by the special URL.
+    $this->drupalLogout();
+    $this->drupalGet($wishlist_path);
+    $this->assertResponse(403, t('Protected wishlist is not publicly accessible.'));
+    $this->drupalGet($protected_path);
+    $this->assertNoField('commerce_wishlist_visibility[und]', t('Wish list sharing field is hidden.'));
+    $this->assertResponse(200, t('Protected wish list URL works.'));
+    $this->assertText(t('Product One'), t('Product is visible.'));
+    $this->assertText(t('Product Two'), t('Product is visible.'));
+
+    // Change to public.
+    $this->drupalLogin($this->storeCustomer);
+    $this->drupalGet($wishlist_path);
+    $this->drupalPost($wishlist_path, array('commerce_wishlist_visibility[und]' => 2), t('Save'));
+    $this->assertField('commerce_wishlist_visibility[und]', t('Wish list sharing field is visible.'));
+    $this->assertText(t('Your wish list is public and can be viewed by everyone.'), t('Wish list public message shows up.'));
+    $elements = $this->xpath('//a[contains(@href, "shared-wishlist")]/@href');
+    $this->assertEqual($elements, array(), t('No shared link on the page.'));
+
+    // Log out and test our wish list.
+    $this->drupalLogout();
+    $this->drupalGet($wishlist_path);
+    $this->assertResponse(200, t('Wish list accessible on usual URL to anonymous user.'));
+    $this->assertText(t('Product One'), t('Product is visible.'));
+    $this->assertText(t('Product Two'), t('Product is visible.'));
+    $this->assertNoField('commerce_wishlist_visibility[und]', t('Wish list sharing field is hidden.'));
+
+    // Set the protected path.
+    $this->drupalGet($protected_path);
+    $this->assertResponse(200, t('Protected wish list URL works still works while public.'));
+    $this->assertText(t('Product One'), t('Product is visible.'));
+    $this->assertText(t('Product Two'), t('Product is visible.'));
+
+    // Change to back to private.
+    $this->drupalLogin($this->storeCustomer);
+    $this->drupalGet($wishlist_path);
+    $this->assertField('commerce_wishlist_visibility[und]', t('Wish list sharing field is visible.'));
+    $this->drupalPost($wishlist_path, array('commerce_wishlist_visibility[und]' => 0), t('Save'));
+    $this->assertText(t('Your wish list is private and can only be viewed by you.'), t('Wish list is private.'));
+    $elements = $this->xpath('//a[contains(@href, "shared-wishlist")]/@href');
+    $this->assertEqual($elements, array(), t('No shared link on the page.'));
+
+    // Log out and test the URLs one more time.
+    $this->drupalLogout();
+    $this->drupalGet($wishlist_path);
+    $this->assertResponse(403, t('Wish list inaccessible on user path.'));
+    $this->assertNoText(t('Product One'), t('Product is not visible.'));
+    $this->assertNoText(t('Product Two'), t('Product is not visible.'));
+    $this->assertNoField('commerce_wishlist_visibility[und]', t('Wish list sharing field is hidden.'));
+
+    // Set the protected path.
+    $this->drupalGet($protected_path);
+    $this->assertResponse(404, t('Protected wish list URL inaccessible now that it is private.'));
+    $this->assertNoText(t('Product One'), t('Product is not visible.'));
+    $this->assertNoText(t('Product Two'), t('Product is not visible.'));
+  }
+
+}

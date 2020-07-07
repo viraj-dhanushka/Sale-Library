@@ -1,0 +1,234 @@
+<?php
+
+/**
+ * @file
+ * Implements ATOS/SIPS credit card payment for use with Drupal Commerce.
+ */
+
+/**
+ * Implements hook_commerce_payment_method_info().
+ */
+function commerce_atos_payment_commerce_payment_method_info() {
+  $payment_methods = array();
+  $payment_methods['atos_payment'] = array(
+    'title' => t('ATOS SIPS credit card payment solution'),
+    'display_title' => t('Pay with a bank card'),
+    'base' => 'commerce_atos_payment',
+    'description' => t('ATOS SIPS payment solution'),
+    'offsite' => TRUE,
+    'offsite_autoredirect' => TRUE,
+    'terminal' => FALSE,
+    'active' => FALSE,
+  );
+  return $payment_methods;
+}
+
+/**
+ * Payment method callback: settings form.
+ */
+function commerce_atos_payment_settings_form($settings) {
+  // Merges default settings into the stored settings array.
+  $settings = (array) $settings + commerce_atos_default_settings();
+  $settings += array(
+    'capture_mode' => 'AUTHOR_CAPTURE',
+    'capture_day' => 3,
+  );
+  // Gets the default settings form.
+  $form = commerce_atos_settings_form($settings);
+  // Gets the transaction mode.
+  $form['capture_mode'] = array(
+    '#type' => 'radios',
+    '#title' => t('Capture mode'),
+    '#description' => t('The default will be used to process transactions during checkout.'),
+    '#options' => array(
+      'AUTHOR_CAPTURE' => t("Sale (Direct debit from the customer's account)"),
+      'VALIDATION' => t('Authorization only (the capture will be deferred)'),
+    ),
+    '#default_value' => $settings['capture_mode'],
+    '#weight' => 2,
+  );
+  // Defines the number of days between the authorization and the capture.
+  $form['capture_day'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Capture day'),
+    '#description' => t('Number of days before the server captures the amount of the transaction. This number must be between 2 and 6.'),
+    '#default_value' => $settings['capture_day'],
+    '#maxlength' => 1,
+    '#states' => array(
+      'visible' => array(
+        'input[name="parameter[payment_method][settings][payment_method][settings][capture_mode]"]' => array('value' => 'VALIDATION'),
+      ),
+    ),
+    '#element_validate' => array('commerce_atos_payment_settings_form_capture_day_validate'),
+    '#size' => 10,
+    '#weight' => 4,
+  );
+
+  return $form;
+}
+
+/**
+ * Element validate callback; Capture days.
+ *
+ * Check if the entered value is valid and between Atos requirements.
+ */
+function commerce_atos_payment_settings_form_capture_day_validate($element, &$form_state) {
+  // This element validate should only happens if the capture_mode is set to
+  // validation.
+  if ($form_state['values']['parameter']['payment_method']['settings']['payment_method']['settings']['capture_mode'] == 'VALIDATION') {
+    if (!($element['#value']) || $element['#value'] < 2 || $element['#value'] > 6) {
+      form_error($element, t('You must provide a number of day before the server captures the amount of the transaction. This number must be between 2 and 6.'));
+    }
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ *
+ * Adds the list of credit cards allowed for the payment method.
+ */
+function commerce_atos_payment_form_commerce_checkout_form_alter(&$form, &$form_state) {
+  // If this checkout form contains the payment method radios...
+  if (!empty($form['commerce_payment']['payment_method']['#options'])) {
+    // Loop over its options array looking for an atos_payment option.
+    foreach ($form['commerce_payment']['payment_method']['#options'] as $key => &$value) {
+      list($method_id) = explode('|', $key);
+      // If we find atos_payment...
+      if ($method_id == 'atos_payment') {
+        // Add the payment credit cards logos.
+        if (isset($form['commerce_payment']['payment_methods']['#value'][$key]['settings'])
+          && isset($form['commerce_payment']['payment_methods']['#value'][$key]['settings']['card_types'])) {
+          $card_types = ($form['commerce_payment']['payment_methods']['#value'][$key]['settings']['card_types']);
+          $value .= theme('commerce_atos_credit_cards_logos', array('credit_cards' => $card_types));
+        }
+        break;
+      }
+    }
+  }
+}
+
+/**
+ * Payment method callback: submit form validation.
+ */
+function commerce_atos_payment_submit_form_validate($payment_method, $pane_form, $pane_values, $order, $form_parents) {
+  // Return an error if the payment method hasn't been configured before using
+  // it.
+  foreach (array('merchant_id', 'secret_key', 'key_version', 'server_url', 'capture_mode') as $key) {
+    if (!isset($payment_method['settings'][$key])) {
+      drupal_set_message(t('ATOS SIPS is not configured for use. Please contact an administrator to resolve this issue.'), 'error');
+      return FALSE;
+    }
+  }
+}
+
+/**
+ * Payment method callback: redirect form.
+ */
+function commerce_atos_payment_redirect_form($form, &$form_state, $order, $payment_method) {
+  // Gets data to send to ATOS.
+  $data = commerce_atos_payment_payment_request($order, $payment_method);
+  // Gets the default redirect form.
+  return commerce_atos_redirect_form($form, $form_state, $order, $payment_method, $data);
+}
+
+/**
+ * Generates a string of key and param to create a payment request.
+ *
+ * @param object $order
+ *   The order the payment is for.
+ * @param array $payment_method
+ *   The payment method instance array associated with this API request.
+ *
+ * @return string
+ *   Return a string of key=value param.
+ */
+function commerce_atos_payment_payment_request($order, $payment_method) {
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+  // Get the amount of the transaction.
+  $order_total = $order_wrapper->commerce_order_total->value();
+
+  // Try to find if a transaction has already been saved for this order and
+  // this payment method.
+  $transactions = commerce_payment_transaction_load_multiple(array(), array('instance_id' => $payment_method['instance_id'], 'status' => COMMERCE_PAYMENT_STATUS_PENDING, 'order_id' => $order->order_id));
+  $transaction = array_pop($transactions);
+  if (!$transaction) {
+    // Creates a new transaction in a pending state to get a transaction id.
+    $transaction = commerce_payment_transaction_new($payment_method['method_id'], $order->order_id);
+    $transaction->status = COMMERCE_PAYMENT_STATUS_PENDING;
+    $transaction->instance_id = $payment_method['instance_id'];
+    $transaction->amount = $order_total['amount'];
+    $transaction->currency_code = $order_total['currency_code'];
+    commerce_payment_transaction_save($transaction);
+  }
+
+  // Generates data to send to ATOS.
+  $data = array(
+    'captureDay' => ($payment_method['settings']['capture_mode'] === 'VALIDATION') ? $payment_method['settings']['capture_day'] : 0,
+    'captureMode' => $payment_method['settings']['capture_mode'],
+    'transactionReference' => commerce_atos_generate_transaction_reference($transaction->transaction_id),
+    'amount' => substr(commerce_atos_price_amount($order_total['amount'], $order_total['currency_code']), 0, 12),
+    'currencyCode' => commerce_atos_get_currency_code($order_total['currency_code']),
+  );
+  // Adds the default payment data to the request.
+  $return = commerce_atos_payment_request($order, $payment_method, $data);
+
+  if ($payment_method['settings']['log']['request']) {
+    watchdog('commerce_atos_payment', 'Request processed for order: @order_number - transaction: @transaction_number with the following data: <pre>@data</pre>', array('@order_number' => $order->order_number, '@transaction_number' => $transaction->transaction_id, '@data' => print_r($data, TRUE)), WATCHDOG_INFO);
+  }
+
+  return $return;
+}
+
+/**
+ * Payment method callback: redirect form return validation.
+ */
+function commerce_atos_payment_redirect_form_validate($order, $payment_method) {
+  if (!isset($_POST) || !isset($_POST['Data'])) {
+    watchdog('commerce_atos_payment', 'Customer request accessed with no POST data submitted.', array(), WATCHDOG_WARNING);
+    return FALSE;
+  }
+  // Checks the received request to determine its validity.
+  if (!isset($_POST['Seal']) || commerce_atos_generate_data_seal($_POST['Data'], $payment_method) !== $_POST['Seal']) {
+    watchdog('commerce_atos_payment', 'The request can not be processed because it contained an invalid hash.', array(), WATCHDOG_WARNING);
+    return FALSE;
+  }
+  // Extracts the response form the received data.
+  $response = commerce_atos_parse_response($_POST['Data']);
+  if ($response && commerce_atos_process_transaction($response)) {
+    return TRUE;
+  }
+  return FALSE;
+}
+
+/**
+ * Payment method callback: redirect form return submission.
+ */
+function commerce_atos_payment_redirect_form_submit($order, $payment_method) {
+  // Because we need to be able to halt checkout completion if payment fails for
+  // some reason, instead of getting and processing Express Checkout payment
+  // details in the submission step, we do this in the validate step above.
+}
+
+/**
+ * Payment method callback: redirect form return back.
+ *
+ * Marks the transactions as failed if the customer choose to cancel the
+ * payment.
+ *
+ * @param object $order
+ *   The order the payment is for.
+ * @param array $payment_method
+ *   The payment method instance array associated with this API request.
+ */
+function commerce_atos_payment_redirect_form_back($order, $payment_method) {
+  // Try to find if a transaction has already been saved for this order and
+  // this payment method.
+  $transactions = commerce_payment_transaction_load_multiple(array(), array('instance_id' => $payment_method['instance_id'], 'status' => COMMERCE_PAYMENT_STATUS_PENDING, 'order_id' => $order->order_id));
+  $transaction = array_pop($transactions);
+  // Marks the transaction as Failed.
+  if ($transaction) {
+    $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
+    $transaction->message = t("Cancellation of payment by the end user");
+    commerce_payment_transaction_save($transaction);
+  }
+}

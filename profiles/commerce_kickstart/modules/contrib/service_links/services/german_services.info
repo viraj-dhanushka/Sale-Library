@@ -1,0 +1,10 @@
+name = German Services
+description = Provide the German Services: Alltagz, Colivia, Icio, InfoPirat, Linkarena, MeinVZ, Mister Wong, Netselektor, Oneview, Readster, seekXL, SeoIGG, Weblinkr, Webnews, Xing, Yigg
+core = 7.x
+package = Service Links - Services
+dependencies[] = service_links
+
+; Information added by drush on 2014-07-03
+version = "7.x-2.3+0-dev"
+project = "service_links"
+datestamp = "1404397265"

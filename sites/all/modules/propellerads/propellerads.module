@@ -1,0 +1,58 @@
+<?php
+
+/**
+ * @file
+ * PropellerAds Drupal module.
+ */
+
+/**
+ * Implements hook_permission().
+ */
+function propellerads_permission() {
+  return array(
+    'admin propeller ads' => array(
+      'title' => t('Administer Propeller Ads config.'),
+      'description' => t('Perform administration tasks for Propeller Ads module.'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function propellerads_menu() {
+  $items['admin/config/system/propellerads'] = array(
+    'access arguments' => array('admin propeller ads'),
+    'description' => t('Configure PropellerAds settings.'),
+    'file' => 'propellerads.admin.inc',
+    'page arguments' => array('propellerads_admin_form'),
+    'page callback' => 'drupal_get_form',
+    'title' => t('Propeller Ads Settings'),
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_init().
+ */
+function propellerads_init() {
+  $channel = variable_get('propellerads_channel_id');
+  if ($channel) {
+    drupal_add_js('//go.onclasrv.com/apu.php?zoneid=' . (int) $channel, array('type' => 'external', 'cache' => FALSE, 'preprocess' => FALSE));
+  }
+}
+
+/**
+ * Implements hook_html_head_alter().
+ */
+function propellerads_html_head_alter(&$head_elements) {
+  $propeller_verification_code = variable_get('propellerads_verification_code');
+  if ($propeller_verification_code) {
+    $head_elements['chrome_frame'] = array(
+      '#type' => 'html_tag',
+      '#tag' => 'meta',
+      '#attributes' => array('name' => 'propeller', 'content' => $propeller_verification_code),
+    );
+  }
+}
+

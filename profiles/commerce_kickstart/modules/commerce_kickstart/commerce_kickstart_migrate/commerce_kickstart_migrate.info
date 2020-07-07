@@ -1,0 +1,15 @@
+name = Commerce Kickstart Migrate
+description = Provides Kickstart-specific Migrate handlers and base migrations.
+package = Commerce Kickstart
+core = 7.x
+dependencies[] = migrate
+dependencies[] = commerce_migrate
+
+files[] = commerce_kickstart_migrate.migrate.inc
+files[] = plugins/destinations/fields.inc
+
+; Information added by Drupal.org packaging script on 2020-06-18
+version = "7.x-2.66"
+core = "7.x"
+project = "commerce_kickstart"
+datestamp = "1592498718"

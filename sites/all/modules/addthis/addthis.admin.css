@@ -1,0 +1,11 @@
+.addthis_service_icon {
+  display: inline-block;
+  padding-left: 20px;
+}
+#edit-addthis-enabled-services .form-item, #edit-addthis-excluded-services .form-item {
+  float: left;
+  width: 20%;
+}
+#edit-addthis-enabled-services .form-item .description {
+  clear: both;
+}
