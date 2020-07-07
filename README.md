@@ -3,7 +3,9 @@
 ### How to get a quick idea about the project
 
 To get the better idea of the project at once, visit the live site (dev) => **[sale library](https://dev-sale-library.pantheonsite.io)**  <br/>
-**NOTE: Hit refresh (F5) if the site doesn't load at the first attempt.** (This may necessary since this is a dev environment)
+**NOTE:** 
+* **Hit refresh (F5) if the site doesn't load at the first attempt.** (This may necessary since this is a dev environment)
+* To get the better experience of the site, please disable any ad blocker softwares, you are using. 
 
 ### Problem we trying to solve with this project
 When we buy books for ourselves to use, after some years they become not nessasary for us. Most of the times we sell them to shops as paper or waste material. But there still can be people who would buy,lend these books from you for their usage. So it is a waste of resourses if you discard or keep them without using at home.
@@ -24,11 +26,11 @@ They can access to the website as an outsider or login using a username. Users c
 Details that need to include by the publisher, first_name, last_name, ISBN, book_title ,contact_number,address etc.
 <br/><br/>
 ### How to use
-* To get the maximum advantage of the site, user has to login. If you are a new user, you have to create an account first.
-* When creating a new account, first user need to porvide username and a valied email address.
-* Then user is asked to verify the provided email address. **(NOTE: The verification email may be recieved to the spam folder. Make sure to check it there.)**
-* After succesfully verified the account, the user is asked to set a password. Then user can log in to the account anytime using any browser.
-* All the details regarding posting an add, has included in **[Help & Contact](https://dev-sale-library.pantheonsite.io/help-contact)** section. 
+* To get the maximum advantage of the site, users have to login. If you are a new user, you have to create an account first.
+* When creating a new account, the first user needs to provide username and a valid email address.
+* Then the user is asked to verify the provided email address. **(NOTE: The verification email may be received to the spam folder. Make sure to check it there.)**
+* After successfully verifying the account, the user is asked to set a password. Then user can log in to the account anytime using any browser using those credentials.
+* All the details regarding posting an ad, have been included in **[Help & Contact](https://dev-sale-library.pantheonsite.io/help-contact)** section. 
 
 ### Some images of site
 
@@ -59,7 +61,7 @@ Post Add Page:
 ### Technical Overview 
 The website is build mainly using Drupal 7, which is powered with ‘PHP’.  Apache is used as the web server. MySQL is used as the database server. 
 </br>
-We used pantheon as the web hosting service which is free at the develpment stage and allows to develop the site as a team.
+We used pantheon as the web hosting service which is free at the development stage and allows us to develop the site as a team.
 
 Pantheon dashboard: 
 ![pd](https://github.com/viradhanus/Sale-Library/blob/master/site_images/pantheon_dashboard.png "pd")
