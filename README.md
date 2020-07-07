@@ -3,7 +3,9 @@
 ### How to get a quick idea about the project
 
 To get the better idea of the project at once, visit the live site (dev) => **[sale library](https://dev-sale-library.pantheonsite.io)**  <br/>
-**NOTE: Hit refresh (F5) if the site doesn't load at the first attempt.** (This may necessary since this is a dev environment)
+**NOTE:** 
+* **Hit refresh (F5) if the site doesn't load at the first attempt.** (This may necessary since this is a dev environment)
+* To get the better experience of the site, please disable any ad blocker softwares, you are using. 
 
 ### Problem we trying to solve with this project
 When we buy books for ourselves to use, after some years they become not nessasary for us. Most of the times we sell them to shops as paper or waste material. But there still can be people who would buy,lend these books from you for their usage. So it is a waste of resourses if you discard or keep them without using at home.
