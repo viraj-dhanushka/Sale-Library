@@ -1,7 +1,8 @@
 # Sale Library
 
 ### How to get a quick idea about the project
-[Video Explanation](https://www.youtube.com/watch?v=aKhY_LkpzmA&ab_channel=VirajDanushka)
+[Video Explanation](https://www.youtube.com/watch?v=aKhY_LkpzmA&ab_channel=VirajDanushka)  
+
 To get the better idea of the project at once, visit the live site (dev) => **[sale library](https://dev-sale-library.pantheonsite.io)**  <br/>
 **NOTE:** 
 * **Hit refresh (F5) if the site doesn't load at the first attempt.** (This may necessary since this is a dev environment)
